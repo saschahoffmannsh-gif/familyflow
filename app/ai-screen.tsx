@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Check, ChevronRight, ImagePlus, KeyRound, LoaderCircle, Settings2, Sparkles, SunDim, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Camera, Check, ChevronRight, ImagePlus, KeyRound, LoaderCircle, Sparkles, SunDim, Trash2, TriangleAlert, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PLANNER_CATEGORIES, type PlannerEvent, type PlannerGroup, type PlannerIdentity, type PlannerPerson } from '@/lib/planner';
@@ -20,6 +20,7 @@ const catStyle = (id: string) => { const c = PLANNER_CATEGORIES.find(c => c.id =
 export default function AiScreen({ group, self, identity, onSave, onDone }: Props) {
   const [settings, setSettings] = useState<AiSettings | null>(() => loadAiSettings());
   const [editing, setEditing] = useState(false);
+  const pendingPick = useRef<'camera' | 'pick' | null>(null);
   const [images, setImages] = useState<PreparedImage[]>([]);
   const [phase, setPhase] = useState<'pick' | 'loading' | 'review'>('pick');
   const [error, setError] = useState('');
@@ -36,8 +37,11 @@ export default function AiScreen({ group, self, identity, onSave, onDone }: Prop
   useEffect(() => { imagesRef.current = images; }, [images]);
   useEffect(() => () => imagesRef.current.forEach(i => URL.revokeObjectURL(i.url)), []);
 
-  if (!settings || editing) return <AiSetup initial={settings} onCancel={settings ? () => setEditing(false) : undefined} onSaved={s => { setSettings(s); setEditing(false); }} onRemoved={() => { setSettings(null); setEditing(false); }}/>;
-  const provider = providerInfo(settings.provider);
+  const provider = providerInfo(settings?.provider || 'openai');
+  function pick(kind: 'camera' | 'pick') {
+    if (!settings) { pendingPick.current = kind; setEditing(true); return; }
+    (kind === 'camera' ? cameraRef : pickRef).current?.click();
+  }
 
   async function addFiles(list: FileList | null) {
     if (!list?.length) return;
@@ -95,18 +99,23 @@ export default function AiScreen({ group, self, identity, onSave, onDone }: Prop
   const localIssues = images.filter(i => i.quality !== 'ok');
   const openQuestion = phase === 'review' ? questions[qIndex] : undefined;
   return <section className="p-ai-screen" aria-labelledby="ai-title">
-    <div className="p-section-heading"><div><span className="p-eyebrow">Foto zu Termin</span><h1 id="ai-title">KI</h1></div><button className="p-ai-provider" onClick={() => setEditing(true)} aria-label={`KI-Einstellungen: ${provider.name}`}><Settings2 size={16}/>{provider.name}</button></div>
+    <h1 id="ai-title" className="p-sr-only">KI</h1>
+    <button type="button" className={`p-ai-connect ${settings ? 'is-on' : ''}`} onClick={() => setEditing(true)} aria-label={settings ? `KI-Einstellungen: ${provider.name} verbunden` : 'KI einrichten'}>
+      <span className="p-ai-connect-icon"><Sparkles size={18}/></span>
+      <span className="p-ai-connect-text">{settings ? <><strong>{provider.name}</strong><span className="p-ai-connect-dot" aria-hidden="true"/>verbunden</> : <strong>KI einrichten</strong>}</span>
+      <ChevronRight size={18}/>
+    </button>
     {error && <div className="p-ai-alert" role="alert"><TriangleAlert size={18}/><span>{error}</span></div>}
     {phase !== 'review' && <div className="p-ai-card">
       <div className="p-ai-pick">
-        <button type="button" className="p-ai-pick-main" onClick={() => cameraRef.current?.click()} disabled={phase === 'loading' || images.length >= MAX_IMAGES}><Camera size={26}/><strong>Foto aufnehmen</strong></button>
-        <button type="button" className="p-ai-pick-side" onClick={() => pickRef.current?.click()} disabled={phase === 'loading' || images.length >= MAX_IMAGES}><ImagePlus size={22}/><span>Bilder wählen</span></button>
-        <input ref={cameraRef} className="p-sr-only" type="file" accept="image/*" capture="environment" aria-label="Foto aufnehmen" onChange={e => { void addFiles(e.target.files); e.target.value = ''; }}/>
-        <input ref={pickRef} className="p-sr-only" type="file" accept="image/*" multiple aria-label="Bilder wählen" data-testid="ai-file" onChange={e => { void addFiles(e.target.files); e.target.value = ''; }}/>
+        <button type="button" className="p-ai-pick-main" onClick={() => pick('camera')} disabled={phase === 'loading' || images.length >= MAX_IMAGES}><Camera size={26}/><strong>Foto aufnehmen</strong></button>
+        <button type="button" className="p-ai-pick-side" onClick={() => pick('pick')} disabled={phase === 'loading' || images.length >= MAX_IMAGES}><ImagePlus size={22}/><span>Bilder hochladen</span></button>
+        <input ref={cameraRef} className="p-sr-only" type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" onChange={e => { void addFiles(e.target.files); e.target.value = ''; }}/>
+        <input ref={pickRef} className="p-sr-only" type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" data-testid="ai-file" onChange={e => { void addFiles(e.target.files); e.target.value = ''; }}/>
       </div>
       {images.length > 0 && <ul className="p-ai-thumbs" aria-label="Ausgewählte Bilder">{images.map(img => <li key={img.id}><img src={img.url} alt=""/>{img.quality !== 'ok' && <span className="p-ai-thumb-flag" title={img.quality === 'dark' ? 'Zu dunkel' : 'Unscharf'}><SunDim size={13}/></span>}<button type="button" disabled={phase === 'loading'} onClick={() => { URL.revokeObjectURL(img.url); setImages(list => list.filter(i => i.id !== img.id)); }} aria-label="Bild entfernen"><X size={14}/></button></li>)}</ul>}
       {localIssues.length > 0 && <p className="p-ai-hint"><SunDim size={16}/>{localIssues.some(i => i.quality === 'dark') ? 'Ein Foto ist recht dunkel.' : 'Ein Foto wirkt unscharf.'} Besser neu aufnehmen?</p>}
-      <button type="button" className="p-button p-ai-run" disabled={!images.length || phase === 'loading'} onClick={() => void analyze()}>{phase === 'loading' ? <><LoaderCircle className="p-spin" size={18}/>Wird ausgewertet …</> : <><Sparkles size={18}/>Auswerten</>}</button>
+      {images.length > 0 && <button type="button" className="p-button p-ai-run" disabled={phase === 'loading'} onClick={() => void analyze()}>{phase === 'loading' ? <><LoaderCircle className="p-spin" size={18}/>Wird ausgewertet …</> : <><Sparkles size={18}/>Auswerten</>}</button>}
     </div>}
     {phase === 'review' && <>
       {(aiHint || localIssues.length > 0) && <div className="p-ai-alert p-ai-alert--soft"><SunDim size={18}/><span>{aiHint || 'Das Foto ist schwer lesbar.'} Bitte Vorschläge prüfen.</span></div>}
@@ -119,7 +128,8 @@ export default function AiScreen({ group, self, identity, onSave, onDone }: Prop
         </>}
       </>}
     </>}
-    <Dialog open={consentOpen} onOpenChange={setConsentOpen}><DialogContent className="planner-dialog p-ai-consent"><DialogHeader><DialogTitle>Fotos an {provider.name} senden?</DialogTitle><DialogDescription>Die Bilder gehen direkt von diesem Gerät an {provider.name} und werden dort ausgewertet.</DialogDescription></DialogHeader><div className="p-dialog-actions"><button type="button" onClick={() => setConsentOpen(false)}>Abbrechen</button><button type="button" className="p-button" onClick={() => { const next = { ...settings, consent: true }; saveAiSettings(next); setSettings(next); setConsentOpen(false); void analyze(true); }}>Verstanden<Check size={17}/></button></div></DialogContent></Dialog>
+    <AiSettingsSheet open={editing} initial={settings} onClose={() => { pendingPick.current = null; setEditing(false); }} onSaved={s => { setSettings(s); setEditing(false); const next = pendingPick.current; pendingPick.current = null; if (next) (next === 'camera' ? cameraRef : pickRef).current?.click(); }} onRemoved={() => { setSettings(null); setEditing(false); }}/>
+    {settings && <Dialog open={consentOpen} onOpenChange={setConsentOpen}><DialogContent className="planner-dialog p-ai-consent"><DialogHeader><DialogTitle>Fotos an {provider.name} senden?</DialogTitle><DialogDescription>Die Bilder gehen direkt von diesem Gerät an {provider.name} und werden dort ausgewertet.</DialogDescription></DialogHeader><div className="p-dialog-actions"><button type="button" onClick={() => setConsentOpen(false)}>Abbrechen</button><button type="button" className="p-button" onClick={() => { const next = { ...settings, consent: true }; saveAiSettings(next); setSettings(next); setConsentOpen(false); void analyze(true); }}>Verstanden<Check size={17}/></button></div></DialogContent></Dialog>}
   </section>;
 }
 
@@ -169,7 +179,11 @@ function DraftCard({ draft: d, members, onChange }: { draft: AiDraft; members: P
   </li>;
 }
 
-function AiSetup({ initial, onSaved, onRemoved, onCancel }: { initial: AiSettings | null; onSaved: (s: AiSettings) => void; onRemoved: () => void; onCancel?: () => void }) {
+function AiSettingsSheet({ open, initial, onSaved, onRemoved, onClose }: { open: boolean; initial: AiSettings | null; onSaved: (s: AiSettings) => void; onRemoved: () => void; onClose: () => void }) {
+  return <Dialog open={open} onOpenChange={o => !o && onClose()}><DialogContent className="planner-dialog p-ai-sheet" aria-describedby={undefined} swipeToClose>{open && <AiSettingsForm initial={initial} onSaved={onSaved} onRemoved={onRemoved}/>}</DialogContent></Dialog>;
+}
+
+function AiSettingsForm({ initial, onSaved, onRemoved }: { initial: AiSettings | null; onSaved: (s: AiSettings) => void; onRemoved: () => void }) {
   const [provider, setProvider] = useState<AiProviderId>(initial?.provider || 'openai');
   const [model, setModel] = useState(initial?.model || providerInfo(initial?.provider || 'openai').defaultModel);
   const [apiKey, setApiKey] = useState(initial?.apiKey || '');
@@ -183,9 +197,9 @@ function AiSetup({ initial, onSaved, onRemoved, onCancel }: { initial: AiSetting
     try { await testAiKey(current()); setStatus({ kind: 'ok', text: 'Schlüssel funktioniert.' }); }
     catch (e) { setStatus({ kind: 'error', text: errorText(e) }); }
   }
-  return <section className="p-ai-screen" aria-labelledby="ai-setup-title">
-    <div className="p-section-heading"><div><span className="p-eyebrow">Foto zu Termin</span><h1 id="ai-setup-title">KI einrichten</h1></div>{onCancel && <button className="p-icon-button" onClick={onCancel} aria-label="Schließen"><X size={20}/></button>}</div>
-    <form className="p-ai-card p-ai-setup p-form-fields" onSubmit={e => { e.preventDefault(); const s = current(); if (!s.apiKey) return; saveAiSettings(s); toast.success('KI eingerichtet.'); onSaved(s); }}>
+  return <>
+    <DialogHeader className="p-ai-sheet-head"><DialogTitle>KI-Einstellungen</DialogTitle></DialogHeader>
+    <form className="p-ai-setup p-form-fields" onSubmit={e => { e.preventDefault(); const s = current(); if (!s.apiKey) return; saveAiSettings(s); toast.success('KI eingerichtet.'); onSaved(s); }}>
       <span className="p-form-label" id="ai-provider-label">Anbieter</span>
       <div className="p-ai-providers" role="radiogroup" aria-labelledby="ai-provider-label">{AI_PROVIDERS.map(p => <button key={p.id} type="button" role="radio" aria-checked={provider === p.id} className={provider === p.id ? 'active' : ''} onClick={() => choose(p.id)}>{p.name}{provider === p.id && <Check size={14}/>}</button>)}</div>
       <label htmlFor="ai-key">API-Schlüssel</label>
@@ -197,5 +211,5 @@ function AiSetup({ initial, onSaved, onRemoved, onCancel }: { initial: AiSetting
       <div className="p-ai-setup-actions"><button type="button" className="p-secondary-button" disabled={!apiKey.trim() || status?.kind === 'busy'} onClick={() => void test()}>Schlüssel testen</button><button className="p-button" disabled={!apiKey.trim()}>Speichern<Check size={17}/></button></div>
       {initial && <button type="button" className="p-ai-remove" onClick={() => { clearAiSettings(); toast.success('Schlüssel entfernt.'); onRemoved(); }}><Trash2 size={15}/>Schlüssel entfernen</button>}
     </form>
-  </section>;
+  </>;
 }

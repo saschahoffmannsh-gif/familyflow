@@ -1,8 +1,5 @@
 /* KI-Reiter: Foto zu Termin */
 .p-ai-screen{display:flex;flex-direction:column;gap:14px;max-width:640px}
-.p-ai-screen .p-section-heading{align-items:center}
-.p-ai-provider{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:8px 12px;border:1px solid var(--p-line);border-radius:12px;background:#fff;color:#5d5870;font-size:12px;font-weight:650}
-.p-ai-provider svg{color:var(--p-accent)}
 .p-ai-card{background:#fff;border:1px solid var(--p-line);border-radius:var(--p-radius);padding:18px;box-shadow:0 10px 30px -22px #2c1a5a55}
 .p-ai-pick{display:grid;grid-template-columns:1.6fr 1fr;gap:10px}
 .p-ai-pick button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;min-height:118px;border-radius:16px;border:1px dashed #cdbff0;background:#faf7ff;color:#5b3fae;font-size:13px}
@@ -65,3 +62,13 @@
 .p-ai-status--ok{color:#1b7a52}.p-ai-status--error{color:#a3263d}.p-ai-status--busy{color:var(--p-muted)}
 .p-ai-setup-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .p-ai-remove{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;margin-top:4px;border:0;background:none;color:#a3263d;font-size:12px;font-weight:650}
+.p-ai-connect{display:flex;align-items:center;gap:11px;width:100%;min-height:56px;padding:8px 12px 8px 8px;border:1px solid var(--p-line);border-radius:16px;background:#fff;color:var(--p-ink);text-align:left;box-shadow:0 8px 24px -22px #2c1a5a55}
+.p-ai-connect:focus-visible{outline:3px solid #a88aec;outline-offset:2px}
+.p-ai-connect-icon{display:grid;place-items:center;width:40px;height:40px;flex-shrink:0;border-radius:12px;background:#f1ebfd;color:var(--p-accent)}
+.p-ai-connect-text{display:flex;align-items:center;gap:7px;flex:1;min-width:0;color:var(--p-muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-ai-connect-text strong{color:var(--p-ink);font-size:15px;font-weight:700}
+.p-ai-connect:not(.is-on) .p-ai-connect-text strong{color:var(--p-accent)}
+.p-ai-connect-dot{width:7px;height:7px;border-radius:50%;background:#22a06b;flex-shrink:0}
+.p-ai-connect>svg{flex-shrink:0;color:#a29db3}
+.p-ai-sheet .p-ai-sheet-head{padding:0 40px}
+.p-ai-sheet .p-ai-setup{margin-top:4px}
