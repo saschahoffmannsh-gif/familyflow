@@ -61,7 +61,7 @@ try {
   })
   await step('Termin anlegen', async () => {
     await page.getByRole('button', { name: 'Termin erstellen' }).click()
-    await page.getByPlaceholder('z. B. Training, Besprechung, Zahnarzt').fill('E2E Termin')
+    await page.getByPlaceholder('Titel', { exact: true }).fill('E2E Termin')
     await page.locator('input[type=time]').fill('10:00')
     await page.waitForTimeout(600); await shot('termin-formular')
     await page.getByRole('button', { name: 'Eintrag speichern und Chat öffnen' }).click()
