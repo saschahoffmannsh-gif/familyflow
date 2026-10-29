@@ -1,0 +1,27 @@
+'use client'
+import { useState } from 'react'
+import { CalendarDays, CalendarPlus, CalendarClock, Check, CheckCheck, ChevronRight, Image, Inbox, Link2, LoaderCircle, MessageCircle, Mic, RefreshCw } from 'lucide-react'
+import type { InboxData, InboxItem } from '@/lib/inbox'
+
+const types={message:{Icon:MessageCircle,label:'Nachricht'},image:{Icon:Image,label:'Bild'},audio:{Icon:Mic,label:'Sprachnachricht'},shared:{Icon:Link2,label:'Mit dir geteilt'},created:{Icon:CalendarPlus,label:'Neuer Eintrag'},changed:{Icon:CalendarClock,label:'Geändert'},cancelled:{Icon:CalendarClock,label:'Entfernt'}}
+const filters=[{id:'all',label:'Alle'},{id:'unread',label:'Ungelesen'},{id:'shared',label:'Geteilt'},{id:'changes',label:'Änderungen'},{id:'chat',label:'Chats & Dateien'}] as const
+const clock=(value:string)=>new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'}).format(new Date(value))
+const entryDate=(value:string)=>new Intl.DateTimeFormat('de-DE',{day:'numeric',month:'short'}).format(new Date(`${value}T12:00:00`))
+
+export default function InboxScreen({data,loading,error,onRefresh,onReadAll,onOpen}:{data:InboxData;loading:boolean;error:string;onRefresh:()=>void;onReadAll:()=>void;onOpen:(item:InboxItem)=>void}) {
+  const [filter,setFilter]=useState<typeof filters[number]['id']>('all')
+  const items=data.items.filter(item=>filter==='all'||(filter==='unread'?item.unread>0:filter==='shared'?item.types.includes('shared'):filter==='changes'?item.types.includes('changed'):item.types.some(type=>['message','image','audio'].includes(type))))
+  return <section className="done-inbox" aria-labelledby="inbox-title">
+    <header className="done-inbox__heading"><div><span className="p-eyebrow">Alles zu deinen Einträgen</span><h1 id="inbox-title">Nachrichten<span>{data.unread>0?`${data.unread} neu`:'Auf dem Laufenden'}</span></h1><p>Geteilte Termine, Änderungen und eure Gespräche.</p></div><button className="p-icon-button" onClick={onRefresh} aria-label="Nachrichten aktualisieren">{loading?<LoaderCircle className="p-spin" size={19}/>:<RefreshCw size={19}/>}</button></header>
+    <div className="done-inbox__toolbar"><div className="done-inbox__filters" role="group" aria-label="Nachrichten filtern">{filters.map(option=><button key={option.id} type="button" aria-pressed={filter===option.id} className={filter===option.id?'active':''} onClick={()=>setFilter(option.id)}>{option.label}{option.id==='unread'&&data.unread>0&&<span>{data.unread}</span>}</button>)}</div><button className="done-inbox__read-all" disabled={!data.unread||loading} onClick={onReadAll}><CheckCheck size={16}/>Alle gelesen</button></div>
+    {error&&<div className="p-error-banner" role="alert"><span>{error}</span><button onClick={onRefresh}>Erneut versuchen</button></div>}
+    {loading&&!data.items.length&&!error?<div className="done-inbox__empty"><LoaderCircle className="p-spin"/><h2>Deine Nachrichten werden geladen …</h2></div>:items.length?<div className="done-inbox__list">{items.map(item=>{
+      const {Icon,label}=types[item.type]
+      const preview=item.type==='image'?`Bild hochgeladen${item.preview?` · ${item.preview}`:''}`:item.type==='audio'?`Sprachnachricht${item.preview?` · ${item.preview}`:''}`:item.preview
+      return <button key={item.threadId} type="button" className={`done-inbox__card done-inbox__card--${item.type} ${item.unread?'is-unread':''}`} onClick={()=>onOpen(item)} aria-label={`${item.entry.title}. ${item.author}: ${label}. ${item.unread?`${item.unread} neue Aktivitäten`:'Gelesen'}. ${item.canOpen?'Eintrag und Chat öffnen':'Als gelesen markieren'}`}>
+        <span className="done-inbox__symbol"><Icon size={23}/>{item.unread>0&&<i/>}</span><span className="done-inbox__copy"><span className="done-inbox__meta"><span>{item.author} <i/> {label}</span><time dateTime={item.createdAt}>{clock(item.createdAt)}</time></span><strong>{item.entry.title}</strong><span className="done-inbox__preview">{preview}</span>{item.changePreview&&!['created','changed','cancelled'].includes(item.type)&&<span className="done-inbox__change"><CalendarClock size={13}/><span>{item.changePreview}</span></span>}<span className="done-inbox__bottom"><span className="done-inbox__entry"><CalendarDays size={12}/>{item.entry.kind==='task'?'Auftrag':'Termin'}{item.entry.date?` · ${entryDate(item.entry.date)}`:' · Datum offen'}</span><span className="done-inbox__content-types" aria-hidden="true">{item.types.map(type=>{const Badge=types[type].Icon;return <Badge key={type} size={13}/>})}</span>{item.unread>0?<span className="done-inbox__new">{item.unread>99?'99+':item.unread} neu</span>:<Check size={13} className="done-inbox__seen"/>}</span></span>{item.canOpen&&<ChevronRight size={17} className="done-inbox__chevron"/>}
+      </button>
+    })}</div>:<div className="done-inbox__empty"><span>{filter==='unread'?<CheckCheck/>:<Inbox/>}</span><h2>{filter==='unread'?'Alles gelesen.':data.items.length?'Hier gibt es gerade nichts Neues.':'Hier läuft alles zusammen.'}</h2><p>{filter==='unread'?'Neue Aktivitäten erscheinen hier, sobald sich etwas tut.':'Nachrichten, Fotos, Sprachnachrichten und Änderungen an deinen Einträgen. Geteilte Links findest du nach dem Öffnen ebenfalls hier.'}</p></div>}
+    {!!data.items.length&&<p className="done-inbox__note">Ein Eintrag, eine Karte. Tippe darauf für den gemeinsamen Chat.</p>}
+  </section>
+}

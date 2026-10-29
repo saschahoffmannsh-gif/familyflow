@@ -1,0 +1,1 @@
+ALTER TABLE `calendar_items` ADD `end_date` text;

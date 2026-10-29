@@ -1,0 +1,1 @@
+ALTER TABLE `calendar_items` ADD `event_type` text;

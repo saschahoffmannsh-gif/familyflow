@@ -1,0 +1,195 @@
+// Real route handlers, real SQLite migrations and an in-memory R2 adapter.
+// This test never contacts production or creates a network listener.
+import assert from 'node:assert/strict'
+import {DatabaseSync} from 'node:sqlite'
+import {readFileSync,readdirSync,existsSync} from 'node:fs'
+import path from 'node:path'
+import ts from 'typescript'
+import {createRequire} from 'node:module'
+const root=path.resolve(import.meta.dirname,'..'),realRequire=createRequire(import.meta.url),sqlite=new DatabaseSync(':memory:')
+for(const f of readdirSync(path.join(root,'drizzle')).filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync(path.join(root,'drizzle',f),'utf8'))
+class Statement{constructor(sql,args=[]){this.sql=sql;this.args=args}bind(...args){return new Statement(this.sql,args)}async first(){return sqlite.prepare(this.sql).get(...this.args)||null}async all(){return {results:sqlite.prepare(this.sql).all(...this.args),success:true}}async run(){return {meta:{changes:Number(sqlite.prepare(this.sql).run(...this.args).changes)},success:true}}}
+const DB={prepare:sql=>new Statement(sql),async batch(items){sqlite.exec('BEGIN');try{const out=[];for(const i of items)out.push(await i.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}},objects=new Map(),BUCKET={async put(key,stream){objects.set(key,new Uint8Array(await new Response(stream).arrayBuffer()))},async delete(key){objects.delete(key)},async get(key){const bytes=objects.get(key);return bytes?{body:new Blob([bytes]).stream(),size:bytes.length}:null}},cache=new Map()
+function load(spec,from=root){if(spec==='cloudflare:workers')return {env:{DB,BUCKET}};if(!spec.startsWith('@/')&&!spec.startsWith('.'))return realRequire(spec);const base=spec.startsWith('@/')?path.join(root,spec.slice(2)):path.resolve(from,spec),file=[base,`${base}.ts`,path.join(base,'index.ts')].find(f=>existsSync(f)&&/\.ts$/.test(f));if(!file)throw Error(`Missing ${spec}`);if(cache.has(file))return cache.get(file).exports;const m={exports:{}};cache.set(file,m);const js=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;new Function('require','module','exports',js)(s=>load(s,path.dirname(file)),m,m.exports);return m.exports}
+const inbox=load('@/app/api/inbox/route')
+const planner=load('@/app/api/planner/route'),chat=load('@/app/api/discussions/route'),uploads=load('@/app/api/discussions/attachments/route'),media=load('@/app/api/discussions/media/[id]/route'),todos=load('@/app/api/todo/route'),calendar=load('@/app/api/calendar/route')
+async function call(mod,method,url,identity,body,status=200){const r=await mod[method](new Request(`https://done.test${url}`,{method,headers:{Origin:'https://done.test',...(identity?{Authorization:`Bearer ${identity.key}`} :{}),...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},...(body?{body:body instanceof FormData?body:JSON.stringify(body)}:{})}));const data=await r.json();assert.equal(r.status,status,JSON.stringify(data));return data}
+const owner=(await call(planner,'POST','/api/planner',null,{action:'profile',name:'Werkstatt'})).identity,guest=(await call(planner,'POST','/api/planner',null,{action:'profile',name:'Kundin'})).identity,stranger=(await call(planner,'POST','/api/planner',null,{action:'profile',name:'Unbeteiligt'})).identity
+let bundle=await call(planner,'POST','/api/planner',owner,{action:'create-group',name:'Werkstatt intern',category:'Arbeit'}),groupId=bundle.selectedGroupId,eventId=crypto.randomUUID()
+await call(planner,'PUT','/api/planner',owner,{id:eventId,title:'Inspektion',date:'2027-01-05',time:'10:00',groupId,person:owner.id,eventType:'work'})
+const thread=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'event',id:eventId})
+await call(chat,'POST','/api/discussions',stranger,{action:'open',kind:'event',id:eventId},403)
+await call(chat,'POST','/api/discussions',owner,{action:'message',threadId:thread.id,body:'Bitte Schlüssel mitbringen.',messageId:crypto.randomUUID()})
+await call(chat,'POST','/api/discussions',null,{action:'message',threadId:thread.id,body:'anonym'},401)
+const {token}=await call(chat,'POST','/api/discussions',owner,{action:'share',threadId:thread.id})
+let shared=await call(chat,'GET',`/api/discussions?share=${token}`)
+assert.equal(shared.entry.title,'Inspektion');assert.equal(shared.messages.length,1);assert.equal(shared.canWrite,false);assert.equal('groupId' in shared.entry,false);assert.equal('groups' in shared,false);assert.equal('shareToken' in shared,false)
+await call(chat,'GET',`/api/discussions?thread=${thread.id}`,stranger,undefined,403)
+await call(chat,'POST','/api/discussions',guest,{action:'message',shareToken:token,body:'Mache ich!',messageId:crypto.randomUUID()})
+shared=await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:token});assert.equal(shared.imported,true)
+bundle=await call(planner,'GET','/api/planner',guest);assert.equal(bundle.groups.length,1);assert.notEqual(bundle.groups[0].id,groupId);assert.equal(bundle.events[0].sharedThreadId,thread.id);assert.equal(bundle.events[0].readonly,true)
+const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')),form=new FormData();form.set('threadId',thread.id);form.set('file',new File([png],'bild.png',{type:'image/png'}))
+shared=await call(uploads,'POST','/api/discussions/attachments',owner,form);const attachment=shared.messages.at(-1).attachment;assert.equal(attachment.mime,'image/png')
+let file=await media.GET(new Request(`https://done.test/api/discussions/media/${attachment.id}?share=${token}`),{params:Promise.resolve({id:attachment.id})});assert.equal(file.status,200);assert.equal((await file.arrayBuffer()).byteLength,png.length)
+file=await media.GET(new Request(`https://done.test/api/discussions/media/${attachment.id}`,{headers:{Authorization:`Bearer ${stranger.key}`}}),{params:Promise.resolve({id:attachment.id})});assert.equal(file.status,403)
+const forged=new FormData();forged.set('threadId',thread.id);forged.set('file',new File(['<script>bad()</script>'],'fake.png',{type:'image/png'}));await call(uploads,'POST','/api/discussions/attachments',owner,forged,400)
+const wav=new Uint8Array(48);wav.set(new TextEncoder().encode('RIFF'));wav.set(new TextEncoder().encode('WAVE'),8);const voice=new FormData();voice.set('shareToken',token);voice.set('duration','2');voice.set('file',new File([wav],'sprache.wav',{type:'audio/wav'}));shared=await call(uploads,'POST','/api/discussions/attachments',guest,voice);assert.equal(shared.messages.at(-1).attachment.mime,'audio/wav')
+const mediaBundle=await call(planner,'GET','/api/planner',owner)
+assert.deepEqual(mediaBundle.events.find(e=>e.id===eventId).activity,{messages:2,images:1,audio:1})
+const sharedBundle=await call(planner,'GET','/api/planner',guest)
+assert.deepEqual(sharedBundle.events.find(e=>e.sharedThreadId===thread.id).activity,{messages:2,images:1,audio:1})
+assert.equal((await call(planner,'GET','/api/planner',stranger)).events.length,0)
+
+// The inbox reuses durable chat history and shares, with private, monotonic read states.
+let ownerInbox=await call(inbox,'GET','/api/inbox',owner)
+assert.ok(ownerInbox.items.find(e=>e.threadId===thread.id).unread>0)
+assert.ok(ownerInbox.items.find(e=>e.threadId===thread.id).types.includes('audio'))
+let guestInbox=await call(inbox,'GET','/api/inbox',guest)
+assert.ok(guestInbox.items.find(e=>e.threadId===thread.id).types.includes('shared'))
+assert.ok(guestInbox.items.find(e=>e.threadId===thread.id).types.includes('image'))
+await call(inbox,'GET','/api/inbox',null,undefined,401)
+assert.equal((await call(inbox,'GET','/api/inbox',stranger)).items.length,0)
+await call(inbox,'POST','/api/inbox',stranger,{action:'read',threadId:thread.id})
+assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM inbox_states WHERE profile_id=?').get(stranger.id).n,0)
+ownerInbox=await call(inbox,'POST','/api/inbox',owner,{action:'read',threadId:thread.id})
+assert.equal(ownerInbox.items.find(e=>e.threadId===thread.id).unread,0)
+assert.ok((await call(inbox,'GET','/api/inbox',guest)).unread>0)
+const receipt=sqlite.prepare('SELECT read_at,read_id FROM inbox_states WHERE profile_id=? AND thread_id=?').get(owner.id,thread.id)
+const later=new Date(new Date(receipt.read_at).getTime()+1000).toISOString()
+sqlite.prepare('INSERT INTO entry_messages (id,thread_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),thread.id,guest.id,'Eine neue Rückfrage.',later)
+assert.equal((await call(inbox,'GET','/api/inbox',owner)).items.find(e=>e.threadId===thread.id).unread,1)
+await call(inbox,'POST','/api/inbox',owner,{action:'read-all'})
+assert.equal((await call(inbox,'GET','/api/inbox',owner)).unread,0)
+// A real event edit notifies its external recipient and preserves the shared thread.
+await call(planner,'PUT','/api/planner',owner,{id:eventId,title:'Inspektion',date:'2027-01-06',time:'11:00',groupId,person:owner.id,eventType:'work',revision:1})
+guestInbox=await call(inbox,'GET','/api/inbox',guest)
+assert.equal(guestInbox.items.find(e=>e.threadId===thread.id).entry.date,'2027-01-06')
+assert.ok(guestInbox.items.find(e=>e.threadId===thread.id).types.includes('changed'))
+const changeCount=sqlite.prepare('SELECT COUNT(*) AS n FROM entry_changes WHERE thread_id=?').get(thread.id).n
+await call(planner,'PUT','/api/planner',owner,{id:eventId,title:'Inspektion',date:'2027-01-06',time:'11:00',groupId,person:owner.id,eventType:'work',revision:2})
+assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM entry_changes WHERE thread_id=?').get(thread.id).n,changeCount)
+// Membership alone does not put somebody else's conversation in the personal inbox.
+sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run(groupId,stranger.id)
+assert.equal((await call(inbox,'GET','/api/inbox',stranger)).items.length,0)
+sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run(groupId,stranger.id)
+
+shared=await call(chat,'POST','/api/discussions',guest,{action:'reminder',threadId:thread.id,remindAt:new Date(Date.now()+60000).toISOString()});assert.equal(shared.reminders.length,1);assert.equal((await call(chat,'GET',`/api/discussions?share=${token}`)).reminders.length,0)
+sqlite.prepare('UPDATE entry_reminders SET remind_at=? WHERE profile_id=?').run(new Date(Date.now()-60000).toISOString(),guest.id)
+const due=await call(chat,'GET','/api/discussions?reminders=due',guest);assert.equal(due.reminders.length,1);await call(chat,'POST','/api/discussions',guest,{action:'dismiss-reminder',id:due.reminders[0].id});assert.equal((await call(chat,'GET','/api/discussions?reminders=due',guest)).reminders.length,0)
+await call(calendar,'GET','/api/calendar',stranger,undefined,403);await call(calendar,'GET','/api/calendar',null,undefined,401)
+await call(chat,'POST','/api/discussions',owner,{action:'revoke-share',threadId:thread.id});await call(chat,'GET',`/api/discussions?share=${token}`,null,undefined,404);await call(chat,'GET',`/api/discussions?thread=${thread.id}`,guest,undefined,403);assert.equal((await call(planner,'GET','/api/planner',guest)).events.length,0);assert.equal((await call(inbox,'GET','/api/inbox',guest)).items.length,0)
+sqlite.prepare('INSERT OR IGNORE INTO planner_groups (id,name,category,color,invite_code,created_by) VALUES (?,?,?,?,?,?)').run('family','Familie','Familie','#6335dc','FAMILYTEST01',owner.id)
+sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run('family',owner.id)
+// Own edits create neither inbox updates nor push notifications, regardless of device headers.
+const pushModule=load('@/lib/push-server'),originalNotify=pushModule.notifyPeople,pushCalls=[]
+pushModule.notifyPeople=async(_db,people,payload)=>{pushCalls.push({people,payload})}
+const selfId=crypto.randomUUID(),selfBefore=(await call(inbox,'GET','/api/inbox',owner)).items.map(e=>[e.threadId,e.activityId,e.unread])
+let selfSaved=await call(calendar,'PUT','/api/calendar',owner,{id:selfId,kind:'event',title:'Mein Termin',date:'2027-01-08',person:owner.id,eventType:'private'})
+assert.deepEqual(pushCalls.at(-1).people,[],'An authenticated author must never receive their own push when the actor header is absent')
+selfSaved=await call(calendar,'PUT','/api/calendar',owner,{id:selfId,kind:'task',title:'Mein Auftrag geändert',date:'2027-01-09',assignee:owner.id,revision:selfSaved.item.revision})
+assert.deepEqual(pushCalls.at(-1).people,[])
+const misleadingHeader=await calendar.PUT(new Request('https://done.test/api/calendar',{method:'PUT',headers:{Origin:'https://done.test',Authorization:`Bearer ${owner.key}`,'Content-Type':'application/json','X-FamilyFlow-Actor':'sascha'},body:JSON.stringify({id:selfId,kind:'event',title:'Mein eigener neuer Tag',date:'2027-01-10',person:owner.id,eventType:'private',revision:selfSaved.item.revision})}))
+assert.equal(misleadingHeader.status,200);selfSaved=await misleadingHeader.json()
+assert.deepEqual(pushCalls.at(-1).people,[],'A stale or different device actor header must not override the authenticated author')
+assert.deepEqual((await call(inbox,'GET','/api/inbox',owner)).items.map(e=>[e.threadId,e.activityId,e.unread]),selfBefore)
+const peer=(await call(planner,'POST','/api/planner',null,{action:'profile',name:'Weitere Person'})).identity
+sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run('family',peer.id)
+await call(calendar,'PUT','/api/calendar',owner,{id:selfId,kind:'task',title:'Auftrag für dich',date:'2027-01-11',assignee:peer.id,revision:selfSaved.item.revision})
+assert.deepEqual(pushCalls.at(-1).people,[peer.id],'Other affected people still receive the assignment notification')
+assert.ok((await call(inbox,'GET','/api/inbox',peer)).items.some(e=>e.entry.title==='Auftrag für dich'&&e.unread>0))
+pushModule.notifyPeople=originalNotify
+sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run('family',peer.id)
+
+const todoId='test-open-task';await call(todos,'PUT','/api/todo',owner,{id:todoId,kind:'task',title:'Kann jemand übernehmen?',createdBy:'sascha'})
+const todoThread=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'todo',id:todoId});await call(chat,'POST','/api/discussions',owner,{action:'message',threadId:todoThread.id,body:'Bitte Foto ansehen.',messageId:crypto.randomUUID()});assert.deepEqual((await call(todos,'GET','/api/todo',owner)).items.find(e=>e.id===todoId).activity,{messages:1,images:0,audio:0});await call(todos,'POST','/api/todo',owner,{id:todoId,person:'sascha',date:'2027-01-05',completed:false});const taken=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'event',id:`todo-${todoId}`});assert.equal(taken.id,todoThread.id);assert.equal(taken.messages[0].body,'Bitte Foto ansehen.')
+const takenBundle=await call(planner,'GET','/api/planner',owner)
+assert.deepEqual(takenBundle.events.find(e=>e.id===`todo-${todoId}`).activity,{messages:1,images:0,audio:0})
+const emptyId=crypto.randomUUID()
+await call(planner,'PUT','/api/planner',owner,{id:emptyId,title:'Ohne Chat',date:'2027-01-06',groupId,person:owner.id,eventType:'work'})
+assert.equal((await call(planner,'GET','/api/planner',owner)).events.find(e=>e.id===emptyId).activity,undefined)
+
+// Scheduled open items keep their date through sharing and family handover.
+const scheduledId='scheduled-open-task'
+let scheduled=await call(todos,'PUT','/api/todo',owner,{id:scheduledId,kind:'task',title:'Abholung organisieren',date:'2027-02-04',createdBy:'sascha'})
+assert.equal(scheduled.item.date,'2027-02-04')
+assert.equal((await call(todos,'GET','/api/todo',owner)).items.find(e=>e.id===scheduledId).date,'2027-02-04')
+const scheduledThread=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'todo',id:scheduledId})
+assert.equal(scheduledThread.entry.date,'2027-02-04')
+const scheduledShare=await call(chat,'POST','/api/discussions',owner,{action:'share',threadId:scheduledThread.id})
+const importedTask=await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:scheduledShare.token})
+assert.equal(importedTask.imported,true)
+assert.ok(importedTask.importedGroupId)
+let guestCalendar=await call(planner,'GET','/api/planner',guest)
+assert.equal(guestCalendar.events.find(e=>e.sharedThreadId===scheduledThread.id).date,'2027-02-04')
+assert.equal(guestCalendar.events.find(e=>e.sharedThreadId===scheduledThread.id).kind,'task')
+await call(chat,'POST','/api/discussions',guest,{action:'message',threadId:scheduledThread.id,body:'Ich kümmere mich darum.',messageId:crypto.randomUUID()})
+assert.equal((await call(chat,'GET',`/api/discussions?thread=${scheduledThread.id}`,owner)).messages.at(-1).body,'Ich kümmere mich darum.')
+// A source date is authoritative even if a recipient or a handover request supplies another day.
+const handover=await call(todos,'POST','/api/todo',owner,{id:scheduledId,person:'sascha',date:'2027-03-09',completed:false})
+assert.equal(handover.calendarItem.date,'2027-02-04')
+assert.equal((await call(planner,'GET','/api/planner',guest)).events.find(e=>e.sharedThreadId===scheduledThread.id).date,'2027-02-04')
+// Undated items require a recipient date; importing twice never duplicates the entry or the chat.
+const undatedId='undated-open-event'
+await call(todos,'PUT','/api/todo',owner,{id:undatedId,kind:'event',title:'Gemeinsam planen',createdBy:'sascha'})
+const undatedThread=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'todo',id:undatedId})
+const undatedShare=await call(chat,'POST','/api/discussions',owner,{action:'share',threadId:undatedThread.id})
+await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:undatedShare.token},400)
+await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:undatedShare.token,date:'2027-02-30'},400)
+await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:undatedShare.token,date:'2027-02-05'})
+await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:undatedShare.token,date:'2027-02-05'})
+guestCalendar=await call(planner,'GET','/api/planner',guest)
+assert.equal(guestCalendar.events.filter(e=>e.sharedThreadId===undatedThread.id).length,1)
+assert.equal(guestCalendar.events.find(e=>e.sharedThreadId===undatedThread.id).date,'2027-02-05')
+assert.equal((await call(chat,'GET',`/api/discussions?share=${undatedShare.token}`,guest)).importDate,'2027-02-05')
+assert.equal((await call(chat,'GET',`/api/discussions?thread=${undatedThread.id}`,guest)).importDate,'2027-02-05')
+await call(todos,'PUT','/api/todo',owner,{id:'invalid-date',kind:'task',title:'Ungültiger Tag',date:'2027-02-30',createdBy:'sascha'},400)
+const {shouldDismissSwipe}=load('@/lib/swipe-dismiss')
+assert.equal(shouldDismissSwipe(150,10,390,300),true)
+assert.equal(shouldDismissSwipe(30,3,390,300),false)
+assert.equal(shouldDismissSwipe(100,130,390,200),false)
+assert.equal(shouldDismissSwipe(-150,0,390,200),false)
+assert.equal(shouldDismissSwipe(60,5,390,80),true)
+
+// Calendar creation and removal by another member are visible to the assigned person.
+sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run(groupId,stranger.id)
+const assignedId=crypto.randomUUID()
+await call(planner,'PUT','/api/planner',stranger,{id:assignedId,title:'Gemeinsame Abholung',date:'2027-02-10',groupId,person:owner.id,eventType:'task'})
+ownerInbox=await call(inbox,'GET','/api/inbox',owner)
+const assigned=ownerInbox.items.find(e=>e.entry.title==='Gemeinsame Abholung')
+assert.equal(assigned.type,'created');assert.ok(assigned.unread>0)
+const assignedShare=await call(chat,'POST','/api/discussions',owner,{action:'share',threadId:assigned.threadId})
+await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:assignedShare.token})
+await call(planner,'DELETE','/api/planner',stranger,{id:assignedId,groupId,revision:1})
+sqlite.prepare("UPDATE entry_guests SET created_at=(SELECT created_at FROM entry_changes WHERE thread_id=? AND kind='cancelled' ORDER BY created_at DESC LIMIT 1) WHERE token=?").run(assigned.threadId,assignedShare.token)
+const cancelled=(await call(inbox,'GET','/api/inbox',owner)).items.find(e=>e.threadId===assigned.threadId)
+assert.equal(cancelled.type,'cancelled');assert.equal(cancelled.canOpen,false)
+const guestCancellation=(await call(inbox,'GET','/api/inbox',guest)).items.find(e=>e.threadId===assigned.threadId)
+assert.equal(guestCancellation.type,'cancelled');assert.equal(guestCancellation.canOpen,false)
+assert.equal((await call(planner,'GET','/api/planner',guest)).events.some(e=>e.sharedThreadId===assigned.threadId),false)
+// Shared read markers never create access to a foreign thread.
+assert.equal((await call(inbox,'GET','/api/inbox',stranger)).items.some(e=>e.threadId===thread.id),false)
+
+// Opening an unchanged entry needs no save; legacy task categories normalize correctly.
+const {unchangedChatDraft}=load('@/lib/chat-draft'),{elasticScrollOffset}=load('@/lib/elastic-scroll')
+const stableDraft={id:'saved',groupId:'family',title:'Training',date:'2027-02-10',person:owner.id,eventType:'private'}
+assert.equal(unchangedChatDraft(stableDraft,{...stableDraft,kind:'event',note:'',time:''}),true)
+assert.equal(unchangedChatDraft({...stableDraft,kind:'task'},{...stableDraft,kind:'task',eventType:'task'}),true)
+assert.equal(unchangedChatDraft(stableDraft,{...stableDraft,date:'2027-02-11'}),false)
+assert.equal(unchangedChatDraft(stableDraft,{...stableDraft,note:'Neue Notiz'}),false)
+assert.equal(unchangedChatDraft({},stableDraft),false)
+assert.equal(elasticScrollOffset(0,700),0)
+assert.ok(elasticScrollOffset(100,700)>0&&elasticScrollOffset(100,700)<100)
+assert.equal(elasticScrollOffset(-100,700),-elasticScrollOffset(100,700))
+assert.ok(elasticScrollOffset(10000,700)<=78)
+// The chat save path returns immediately after persistence, without building another calendar bundle.
+const fastId=crypto.randomUUID(),minimal=await planner.PUT(new Request('https://done.test/api/planner',{method:'PUT',headers:{Origin:'https://done.test',Authorization:`Bearer ${owner.key}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({id:fastId,title:'Sofortiger Chat',date:'2027-02-12',groupId,person:owner.id,eventType:'work'})}))
+assert.equal(minimal.status,200);assert.deepEqual(await minimal.json(),{saved:true})
+assert.equal((await call(planner,'GET','/api/planner',owner)).events.find(e=>e.id===fastId).title,'Sofortiger Chat')
+const familyFastId=crypto.randomUUID(),familyMinimal=await planner.PUT(new Request('https://done.test/api/planner',{method:'PUT',headers:{Origin:'https://done.test',Authorization:`Bearer ${owner.key}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({id:familyFastId,title:'Familienchat sofort',date:'2027-02-12',groupId:'family',person:owner.id,eventType:'private'})}))
+assert.equal(familyMinimal.status,200);assert.deepEqual(await familyMinimal.json(),{saved:true})
+assert.equal((await call(planner,'GET','/api/planner',owner)).events.find(e=>e.id===familyFastId).title,'Familienchat sofort')
+
+for(let i=0;i<70;i++)sqlite.prepare('INSERT INTO entry_messages (id,thread_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),thread.id,owner.id,`page-${i}`,'2028-01-01T00:00:00.000Z')
+const page=await call(chat,'GET',`/api/discussions?thread=${thread.id}`,owner),cursor=`${page.messages[0].createdAt}|${page.messages[0].id}`,previous=await call(chat,'GET',`/api/discussions?thread=${thread.id}&before=${encodeURIComponent(cursor)}`,owner);assert.equal(new Set([...page.messages,...previous.messages].map(m=>m.id)).size,75)
+console.log('PASS: chat persistence, owner/guest access, isolated sharing, external replies, calendar import, image/audio uploads and retrieval, MIME spoof rejection, private/due reminders, revocation, legacy API isolation, to-do handover, optional dates, scheduled/undated shared tasks and events, shared chat after import, swipe thresholds, equal-timestamp pagination, private inbox aggregation, images/audio/shares, event changes, no-op edits, read states, new activity after read, cancelled entries and revoked inbox access, suppression of own inbox/push updates, absent/stale actor headers and notifications for other recipients, minimal chat saves, unchanged draft detection and bounded scroll elasticity.')
+sqlite.close()
