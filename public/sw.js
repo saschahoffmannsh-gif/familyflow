@@ -1,4 +1,4 @@
-const CACHE_NAME = "done-v32-ki-kompakt"
+const CACHE_NAME = "done-v33-update-fix"
 // GitHub Pages: die App liegt unter /familyflow/. Alle App-Pfade werden relativ zum Scope des Service Workers gebildet.
 const SCOPE = new URL(self.registration.scope)
 const scoped = (path) => {
@@ -26,7 +26,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-cache" })
         .then((response) => {
           const copy = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(ROOT, copy))

@@ -790,13 +790,14 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
 
     if ("serviceWorker" in navigator) {
       handleControllerChange = () => {
-        const key = "du-machst-das:sw-reloaded:v17"
-        if (window.sessionStorage.getItem(key)) return
-        window.sessionStorage.setItem(key, "1")
+        const key = "du-machst-das:sw-reloaded-at"
+        const last = Number(window.sessionStorage.getItem(key) || 0)
+        if (Date.now() - last < 10000) return
+        window.sessionStorage.setItem(key, String(Date.now()))
         window.location.reload()
       }
       navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange)
-      navigator.serviceWorker.register(appPath("/sw.js"), { scope: APP_BASE })
+      navigator.serviceWorker.register(appPath("/sw.js"), { scope: APP_BASE, updateViaCache: "none" })
         .then(async (registration) => {
           void registration.update()
           const status = await readPushState()
