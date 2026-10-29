@@ -37,7 +37,7 @@ export default function CategorySelect({ id, labelId, value, open, onOpenChange,
   return <div className="p-cat-select" ref={root}>
     <button ref={trigger} id={id} type="button" className="p-cat-trigger" disabled={disabled} style={style(current)} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-labelledby={`${labelId} ${id}`}
       onClick={() => show(!open)}
-      onKeyDown={e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); show(true); } }}>
+      onKeyDown={e => { if (open) onListKey(e); else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); show(true); } }}>
       <i aria-hidden="true"/><span>{current.label}</span><ChevronDown className="p-cat-chevron" size={17} aria-hidden="true"/>
     </button>
     {open && <ul ref={list} id={listId} className="p-cat-list" role="listbox" tabIndex={-1} aria-labelledby={labelId} aria-activedescendant={`${listId}-${active}`} onKeyDown={onListKey}>
