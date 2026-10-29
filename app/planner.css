@@ -440,7 +440,7 @@ body { background: var(--p-canvas); }
 .p-event-dialog [data-slot=dialog-close]{top:15px;right:14px;width:44px;height:44px;display:flex;align-items:center;justify-content:center}
 .p-event-dialog .p-form-fields{margin-top:12px}
 .p-cat-select{position:relative}
-.p-cat-trigger{display:flex;align-items:center;gap:9px;width:100%;min-width:0;min-height:44px;padding:11px 12px;border:1px solid #ddd7e9;border-radius:11px;background:#fbfafe;color:var(--p-ink);font-size:16px!important;text-align:left}
+.p-cat-trigger{display:flex;align-items:center;gap:9px;width:100%;min-width:0;height:44px;padding:0 12px;line-height:20px;border:1px solid #ddd7e9;border-radius:11px;background:#fbfafe;color:var(--p-ink);font-size:16px!important;text-align:left}
 .p-cat-trigger>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .p-cat-trigger>i,.p-cat-list i{width:10px;height:10px;flex-shrink:0;border-radius:50%;background:var(--category-color);box-shadow:0 0 0 3px color-mix(in srgb,var(--category-color) 18%,transparent)}
 .p-cat-chevron{flex-shrink:0;color:#8a8398;transition:transform .18s ease}
