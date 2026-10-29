@@ -435,3 +435,7 @@ body { background: var(--p-canvas); }
 .todo-date-note{display:block;color:#8b8296;font-size:11px;line-height:1.5;font-weight:400}
 .todo-card__date{display:inline-flex;align-items:center;gap:6px;margin:7px 0 2px;color:#7955a6;font-size:12px;font-weight:650}
 @media(max-width:420px){.p-create-actions{gap:8px}.p-create-actions>button{font-size:11px;gap:5px}.p-editor-title{gap:8px}.p-editor-title h2{font-size:22px}.p-calendar-actions{gap:6px}}
+
+.p-editor-head{flex-direction:row!important;align-items:center;justify-content:flex-end;min-height:44px;margin:-10px 34px 0 0}
+.p-event-dialog [data-slot=dialog-close]{top:15px;right:14px;width:44px;height:44px;display:flex;align-items:center;justify-content:center}
+.p-event-dialog .p-form-fields{margin-top:12px}
