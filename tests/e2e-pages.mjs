@@ -23,6 +23,9 @@ if (process.env.FF_TRACE) page.on('response', async r => { if (r.url().includes(
 page.on('response', r => { if (r.status() >= 500 || (r.status() >= 400 && !r.url().includes('/api/'))) errors.push(`HTTP ${r.status()} ${r.url()}`) })
 let n = 0
 const shot = async name => { const file = path.join(shots, `${String(++n).padStart(2, '0')}-${name}.png`); await page.screenshot({ path: file }); return file }
+const RUN = Date.now().toString(36).slice(-5)
+const TODO_TITLE = `E2E Listen-Auftrag ${RUN}`
+const SHOP_LABEL = `E2E Milch ${RUN}`
 async function step(name, fn) { const t = Date.now(); try { await fn(); results.push(`PASS ${name} (${Date.now() - t} ms)`) } catch (e) { results.push(`FAIL ${name}: ${e.message.split('\n')[0]}`); await shot(`fehler-${name.replace(/\W+/g, '-')}`).catch(() => {}); throw e } }
 const dialog = () => page.getByRole('dialog')
 try {
@@ -107,18 +110,18 @@ try {
     await step('Liste: offenen Auftrag eintragen', async () => {
       await page.getByRole('button', { name: 'Listen' }).first().click()
       await page.locator('button', { hasText: 'Offen eintragen' }).filter({ hasText: 'Auftrag' }).click()
-      await page.getByPlaceholder('z. B. Keller aufräumen').fill('E2E Listen-Auftrag')
+      await page.getByPlaceholder('z. B. Keller aufräumen').fill(TODO_TITLE)
       await page.getByRole('button', { name: 'Offen eintragen', exact: true }).click()
-      await page.getByText('E2E Listen-Auftrag').first().waitFor()
+      await page.getByText(TODO_TITLE).first().waitFor()
       await page.waitForTimeout(600); await shot('liste-auftrag')
     })
     await step('Einkaufsliste: Artikel hinzufügen', async () => {
       await page.getByRole('button', { name: /Einkaufsliste öffnen/ }).click()
       const saved = page.waitForResponse(r => r.url().includes('/api/shopping') && r.request().method() === 'PUT')
-      await page.getByPlaceholder('Was brauchen wir?').fill('E2E Milch')
+      await page.getByPlaceholder('Was brauchen wir?').fill(SHOP_LABEL)
       await page.getByRole('button', { name: 'Eingabe zur Einkaufsliste hinzufügen' }).click()
       assert.equal((await saved).status(), 200)
-      await page.getByText('E2E Milch').first().waitFor()
+      await page.getByText(SHOP_LABEL).first().waitFor()
       await page.waitForTimeout(600); await shot('einkaufsliste')
     })
   } else results.push('SKIP Familienprofil/Listen (FF_PROFILE_CHANGE_CODE nicht gesetzt)')
