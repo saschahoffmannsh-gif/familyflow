@@ -83,6 +83,7 @@ import {
   saveLocalAvatars,
   saveDeviceUser,
 } from "@/lib/familyflow-storage"
+import { APP_BASE, appPath } from "@/lib/app-base"
 import {
   type PushState,
   disablePush,
@@ -123,9 +124,9 @@ const PEOPLE: Record<
   PersonId,
   { name: string; short: string; photo: string; photoPosition: string; color: string }
 > = {
-  sascha: { name: "Sascha", short: "S", photo: "/profiles/sascha.jpeg", photoPosition: "50% 52%", color: "#467ba6" },
-  katharina: { name: "Katharina", short: "K", photo: "/profiles/katharina.jpeg", photoPosition: "50% 46%", color: "#d9778f" },
-  arjen: { name: "Arjen", short: "A", photo: "/profiles/arjen.jpeg", photoPosition: "50% 48%", color: "#36a78a" },
+  sascha: { name: "Sascha", short: "S", photo: appPath("/profiles/sascha.jpeg"), photoPosition: "50% 52%", color: "#467ba6" },
+  katharina: { name: "Katharina", short: "K", photo: appPath("/profiles/katharina.jpeg"), photoPosition: "50% 46%", color: "#d9778f" },
+  arjen: { name: "Arjen", short: "A", photo: appPath("/profiles/arjen.jpeg"), photoPosition: "50% 48%", color: "#36a78a" },
 }
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
@@ -256,7 +257,7 @@ function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? "brand--compact" : ""}`} aria-label="Done">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="brand__mark" src="/branding/handoff-v1-logo-128.png" alt="" />
+      <img className="brand__mark" src={appPath("/branding/handoff-v1-logo-128.png")} alt="" />
       {!compact && (
         <div>
           <div className="brand__name"><span className="brand__line">Du machst</span>{" "}<span className="brand__line">das <span className="brand__yellow">jetzt!</span></span></div>
@@ -795,7 +796,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
         window.location.reload()
       }
       navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange)
-      navigator.serviceWorker.register("/sw.js")
+      navigator.serviceWorker.register(appPath("/sw.js"), { scope: APP_BASE })
         .then(async (registration) => {
           void registration.update()
           const status = await readPushState()

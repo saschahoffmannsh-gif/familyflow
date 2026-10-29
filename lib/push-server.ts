@@ -41,7 +41,7 @@ export async function sendPushToSubscription(db: D1Database, row: SubscriptionRo
       },
       options: { ttl: 60 * 60 },
     }, asSubscription(row), {
-      subject: "https://familyflow-kalender.saschahoffmann-sh.chatgpt.site",
+      subject: "https://saschahoffmannsh-gif.github.io/familyflow/",
       publicKey: VAPID_PUBLIC_KEY,
       privateKey: env.VAPID_PRIVATE_KEY,
     })

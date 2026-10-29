@@ -7,6 +7,7 @@ import type {PlannerGroup,PlannerIdentity} from '@/lib/planner'
 import {clientId,reminderCalendar,type ChatAttachment,type ChatData,type ChatEntry,type EntryRef} from '@/lib/discussions'
 import './entry-chat.css'
 import {useElasticScroll} from './use-elastic-scroll'
+import { APP_BASE } from '@/lib/app-base'
 export type ChatTarget={entry?:EntryRef;threadId?:string;shareToken?:string;initialPanel?:'share';preview?:ChatEntry;prepare?:()=>Promise<void>}
 type Props={target:ChatTarget;identity:PlannerIdentity|null;groups:PlannerGroup[];onClose:()=>void;onSignIn:()=>void;onImported:(groupId?:string,date?:string)=>void;onRead?:(threadId:string)=>void}
 const timeLabel=(s:string)=>new Intl.DateTimeFormat('de-DE',{hour:'2-digit',minute:'2-digit'}).format(new Date(s))
@@ -57,7 +58,7 @@ export default function EntryChat({target,identity,groups,onClose,onSignIn,onImp
  const entry=data?.entry||target.preview
  const entryDate=entry?.date||data?.importDate
  const dateText=entryDate?new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'numeric',month:'long'}).format(new Date(`${entryDate}T12:00:00`))+(entry?.time?` · ${entry.time} Uhr`:' · Ganztägig'):'Noch ohne festen Tag'
- const shareUrl=shareToken&&typeof window!=='undefined'?`${window.location.origin}/?share=${shareToken}`:''
+ const shareUrl=shareToken&&typeof window!=='undefined'?`${window.location.origin}${APP_BASE}?share=${shareToken}`:''
  return <Dialog open onOpenChange={o=>!o&&onClose()}><DialogContent ref={viewportRef} layout="viewport" className="done-chat" swipeToClose={!busy && !recording && !micBusy} showCloseButton={false} onInteractOutside={e=>e.preventDefault()}>
   <header className="done-chat__header"><button className="done-chat__back" onClick={onClose} aria-label="Chat schließen"><ArrowLeft size={23}/></button><span className="done-chat__avatar"><MessageCircle size={23}/></span><div><span>{target.shareToken?'Mit dir geteilt':'Alles zu diesem Eintrag'}</span><DialogTitle>{entry?.title||'Dein Chat'}</DialogTitle></div>{data?.canShare&&<button className="done-chat__header-action" onClick={()=>void openShare()} disabled={busy} aria-label={`${data.entry.kind==='task'?'Auftrag':'Termin'} per Link teilen`}><Share2 size={21}/></button>}</header>
   <DialogDescription className="p-sr-only">Nachrichten, Bilder, Sprachnachrichten und Erinnerungen zu diesem Eintrag.</DialogDescription>

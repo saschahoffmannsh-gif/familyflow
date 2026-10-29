@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DatabaseSync } from 'node:sqlite'
+import { createPgD1 } from './pg-d1.mjs'
 import { createRequire } from 'node:module'
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -8,20 +8,9 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(realpathSync(new URL('../node_modules/drizzle-kit/bin.cjs', import.meta.url)))
 const { build } = require('esbuild')
-const sqlite = new DatabaseSync(':memory:')
-for (const name of readdirSync(path.join(root, 'drizzle')).filter(n => n.endsWith('.sql')).sort()) sqlite.exec(readFileSync(path.join(root, 'drizzle', name), 'utf8'))
-function prepare(sql) {
- const statement = sqlite.prepare(sql)
- let args = []
- const prepared = {
-  bind(...next) { args = next; return prepared },
-  async all() { return { results: statement.all(...args) } },
-  async first() { return statement.get(...args) || null },
-  async run() { const result = statement.run(...args); return { meta: { changes: Number(result.changes) } } },
- }
- return prepared
-}
-globalThis.__plannerTestDb = { prepare, async batch(statements) { sqlite.exec('BEGIN'); try { const results = []; for (const statement of statements) results.push(await statement.run()); sqlite.exec('COMMIT'); return results } catch (error) { sqlite.exec('ROLLBACK'); throw error } } }
+// Postgres (PGlite) mit supabase/schema.sql und dem D1-Adapter der Supabase-Function.
+const { DB } = await createPgD1()
+globalThis.__plannerTestDb = DB
 const bundled = await build({ entryPoints: [path.join(root, 'app/api/planner/route.ts')], bundle: true, platform: 'node', format: 'esm', write: false, plugins: [{ name: 'd1-test-adapter', setup(build) {
  build.onResolve({ filter: /^@\/db$/ }, () => ({ path: 'db', namespace: 'test' }))
  build.onResolve({ filter: /^@\/lib\/family-access$/ }, () => ({ path: 'access', namespace: 'test' }))

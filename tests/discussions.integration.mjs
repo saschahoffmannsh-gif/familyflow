@@ -1,15 +1,13 @@
-// Real route handlers, real SQLite migrations and an in-memory R2 adapter.
+// Real route handlers on real Postgres (PGlite + supabase/schema.sql via the D1 adapter) and an in-memory storage adapter.
 // This test never contacts production or creates a network listener.
 import assert from 'node:assert/strict'
-import {DatabaseSync} from 'node:sqlite'
+import {createPgD1} from './pg-d1.mjs'
 import {readFileSync,readdirSync,existsSync} from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import {createRequire} from 'node:module'
-const root=path.resolve(import.meta.dirname,'..'),realRequire=createRequire(import.meta.url),sqlite=new DatabaseSync(':memory:')
-for(const f of readdirSync(path.join(root,'drizzle')).filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync(path.join(root,'drizzle',f),'utf8'))
-class Statement{constructor(sql,args=[]){this.sql=sql;this.args=args}bind(...args){return new Statement(this.sql,args)}async first(){return sqlite.prepare(this.sql).get(...this.args)||null}async all(){return {results:sqlite.prepare(this.sql).all(...this.args),success:true}}async run(){return {meta:{changes:Number(sqlite.prepare(this.sql).run(...this.args).changes)},success:true}}}
-const DB={prepare:sql=>new Statement(sql),async batch(items){sqlite.exec('BEGIN');try{const out=[];for(const i of items)out.push(await i.run());sqlite.exec('COMMIT');return out}catch(e){sqlite.exec('ROLLBACK');throw e}}},objects=new Map(),BUCKET={async put(key,stream){objects.set(key,new Uint8Array(await new Response(stream).arrayBuffer()))},async delete(key){objects.delete(key)},async get(key){const bytes=objects.get(key);return bytes?{body:new Blob([bytes]).stream(),size:bytes.length}:null}},cache=new Map()
+const root=path.resolve(import.meta.dirname,'..'),realRequire=createRequire(import.meta.url),{DB,sqlite}=await createPgD1()
+const objects=new Map(),BUCKET={async put(key,stream){objects.set(key,new Uint8Array(await new Response(stream).arrayBuffer()))},async delete(key){objects.delete(key)},async get(key){const bytes=objects.get(key);return bytes?{body:new Blob([bytes]).stream(),size:bytes.length}:null}},cache=new Map()
 function load(spec,from=root){if(spec==='cloudflare:workers')return {env:{DB,BUCKET}};if(!spec.startsWith('@/')&&!spec.startsWith('.'))return realRequire(spec);const base=spec.startsWith('@/')?path.join(root,spec.slice(2)):path.resolve(from,spec),file=[base,`${base}.ts`,path.join(base,'index.ts')].find(f=>existsSync(f)&&/\.ts$/.test(f));if(!file)throw Error(`Missing ${spec}`);if(cache.has(file))return cache.get(file).exports;const m={exports:{}};cache.set(file,m);const js=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;new Function('require','module','exports',js)(s=>load(s,path.dirname(file)),m,m.exports);return m.exports}
 const inbox=load('@/app/api/inbox/route')
 const planner=load('@/app/api/planner/route'),chat=load('@/app/api/discussions/route'),uploads=load('@/app/api/discussions/attachments/route'),media=load('@/app/api/discussions/media/[id]/route'),todos=load('@/app/api/todo/route'),calendar=load('@/app/api/calendar/route')
@@ -50,13 +48,13 @@ assert.ok(guestInbox.items.find(e=>e.threadId===thread.id).types.includes('image
 await call(inbox,'GET','/api/inbox',null,undefined,401)
 assert.equal((await call(inbox,'GET','/api/inbox',stranger)).items.length,0)
 await call(inbox,'POST','/api/inbox',stranger,{action:'read',threadId:thread.id})
-assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM inbox_states WHERE profile_id=?').get(stranger.id).n,0)
+assert.equal((await sqlite.prepare('SELECT COUNT(*) AS n FROM inbox_states WHERE profile_id=?').get(stranger.id)).n,0)
 ownerInbox=await call(inbox,'POST','/api/inbox',owner,{action:'read',threadId:thread.id})
 assert.equal(ownerInbox.items.find(e=>e.threadId===thread.id).unread,0)
 assert.ok((await call(inbox,'GET','/api/inbox',guest)).unread>0)
-const receipt=sqlite.prepare('SELECT read_at,read_id FROM inbox_states WHERE profile_id=? AND thread_id=?').get(owner.id,thread.id)
+const receipt=(await sqlite.prepare('SELECT read_at,read_id FROM inbox_states WHERE profile_id=? AND thread_id=?').get(owner.id,thread.id))
 const later=new Date(new Date(receipt.read_at).getTime()+1000).toISOString()
-sqlite.prepare('INSERT INTO entry_messages (id,thread_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),thread.id,guest.id,'Eine neue Rückfrage.',later)
+;(await sqlite.prepare('INSERT INTO entry_messages (id,thread_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),thread.id,guest.id,'Eine neue Rückfrage.',later))
 assert.equal((await call(inbox,'GET','/api/inbox',owner)).items.find(e=>e.threadId===thread.id).unread,1)
 await call(inbox,'POST','/api/inbox',owner,{action:'read-all'})
 assert.equal((await call(inbox,'GET','/api/inbox',owner)).unread,0)
@@ -65,21 +63,21 @@ await call(planner,'PUT','/api/planner',owner,{id:eventId,title:'Inspektion',dat
 guestInbox=await call(inbox,'GET','/api/inbox',guest)
 assert.equal(guestInbox.items.find(e=>e.threadId===thread.id).entry.date,'2027-01-06')
 assert.ok(guestInbox.items.find(e=>e.threadId===thread.id).types.includes('changed'))
-const changeCount=sqlite.prepare('SELECT COUNT(*) AS n FROM entry_changes WHERE thread_id=?').get(thread.id).n
+const changeCount=(await sqlite.prepare('SELECT COUNT(*) AS n FROM entry_changes WHERE thread_id=?').get(thread.id)).n
 await call(planner,'PUT','/api/planner',owner,{id:eventId,title:'Inspektion',date:'2027-01-06',time:'11:00',groupId,person:owner.id,eventType:'work',revision:2})
-assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM entry_changes WHERE thread_id=?').get(thread.id).n,changeCount)
+assert.equal((await sqlite.prepare('SELECT COUNT(*) AS n FROM entry_changes WHERE thread_id=?').get(thread.id)).n,changeCount)
 // Membership alone does not put somebody else's conversation in the personal inbox.
-sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run(groupId,stranger.id)
+;(await sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run(groupId,stranger.id))
 assert.equal((await call(inbox,'GET','/api/inbox',stranger)).items.length,0)
-sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run(groupId,stranger.id)
+;(await sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run(groupId,stranger.id))
 
 shared=await call(chat,'POST','/api/discussions',guest,{action:'reminder',threadId:thread.id,remindAt:new Date(Date.now()+60000).toISOString()});assert.equal(shared.reminders.length,1);assert.equal((await call(chat,'GET',`/api/discussions?share=${token}`)).reminders.length,0)
-sqlite.prepare('UPDATE entry_reminders SET remind_at=? WHERE profile_id=?').run(new Date(Date.now()-60000).toISOString(),guest.id)
+;(await sqlite.prepare('UPDATE entry_reminders SET remind_at=? WHERE profile_id=?').run(new Date(Date.now()-60000).toISOString(),guest.id))
 const due=await call(chat,'GET','/api/discussions?reminders=due',guest);assert.equal(due.reminders.length,1);await call(chat,'POST','/api/discussions',guest,{action:'dismiss-reminder',id:due.reminders[0].id});assert.equal((await call(chat,'GET','/api/discussions?reminders=due',guest)).reminders.length,0)
 await call(calendar,'GET','/api/calendar',stranger,undefined,403);await call(calendar,'GET','/api/calendar',null,undefined,401)
 await call(chat,'POST','/api/discussions',owner,{action:'revoke-share',threadId:thread.id});await call(chat,'GET',`/api/discussions?share=${token}`,null,undefined,404);await call(chat,'GET',`/api/discussions?thread=${thread.id}`,guest,undefined,403);assert.equal((await call(planner,'GET','/api/planner',guest)).events.length,0);assert.equal((await call(inbox,'GET','/api/inbox',guest)).items.length,0)
-sqlite.prepare('INSERT OR IGNORE INTO planner_groups (id,name,category,color,invite_code,created_by) VALUES (?,?,?,?,?,?)').run('family','Familie','Familie','#6335dc','FAMILYTEST01',owner.id)
-sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run('family',owner.id)
+;(await sqlite.prepare('INSERT OR IGNORE INTO planner_groups (id,name,category,color,invite_code,created_by) VALUES (?,?,?,?,?,?)').run('family','Familie','Familie','#6335dc','FAMILYTEST01',owner.id))
+;(await sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run('family',owner.id))
 // Own edits create neither inbox updates nor push notifications, regardless of device headers.
 const pushModule=load('@/lib/push-server'),originalNotify=pushModule.notifyPeople,pushCalls=[]
 pushModule.notifyPeople=async(_db,people,payload)=>{pushCalls.push({people,payload})}
@@ -93,12 +91,12 @@ assert.equal(misleadingHeader.status,200);selfSaved=await misleadingHeader.json(
 assert.deepEqual(pushCalls.at(-1).people,[],'A stale or different device actor header must not override the authenticated author')
 assert.deepEqual((await call(inbox,'GET','/api/inbox',owner)).items.map(e=>[e.threadId,e.activityId,e.unread]),selfBefore)
 const peer=(await call(planner,'POST','/api/planner',null,{action:'profile',name:'Weitere Person'})).identity
-sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run('family',peer.id)
+;(await sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run('family',peer.id))
 await call(calendar,'PUT','/api/calendar',owner,{id:selfId,kind:'task',title:'Auftrag für dich',date:'2027-01-11',assignee:peer.id,revision:selfSaved.item.revision})
 assert.deepEqual(pushCalls.at(-1).people,[peer.id],'Other affected people still receive the assignment notification')
 assert.ok((await call(inbox,'GET','/api/inbox',peer)).items.some(e=>e.entry.title==='Auftrag für dich'&&e.unread>0))
 pushModule.notifyPeople=originalNotify
-sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run('family',peer.id)
+;(await sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run('family',peer.id))
 
 const todoId='test-open-task';await call(todos,'PUT','/api/todo',owner,{id:todoId,kind:'task',title:'Kann jemand übernehmen?',createdBy:'sascha'})
 const todoThread=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'todo',id:todoId});await call(chat,'POST','/api/discussions',owner,{action:'message',threadId:todoThread.id,body:'Bitte Foto ansehen.',messageId:crypto.randomUUID()});assert.deepEqual((await call(todos,'GET','/api/todo',owner)).items.find(e=>e.id===todoId).activity,{messages:1,images:0,audio:0});await call(todos,'POST','/api/todo',owner,{id:todoId,person:'sascha',date:'2027-01-05',completed:false});const taken=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'event',id:`todo-${todoId}`});assert.equal(taken.id,todoThread.id);assert.equal(taken.messages[0].body,'Bitte Foto ansehen.')
@@ -151,7 +149,7 @@ assert.equal(shouldDismissSwipe(-150,0,390,200),false)
 assert.equal(shouldDismissSwipe(60,5,390,80),true)
 
 // Calendar creation and removal by another member are visible to the assigned person.
-sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run(groupId,stranger.id)
+;(await sqlite.prepare('INSERT INTO planner_members (group_id,profile_id) VALUES (?,?)').run(groupId,stranger.id))
 const assignedId=crypto.randomUUID()
 await call(planner,'PUT','/api/planner',stranger,{id:assignedId,title:'Gemeinsame Abholung',date:'2027-02-10',groupId,person:owner.id,eventType:'task'})
 ownerInbox=await call(inbox,'GET','/api/inbox',owner)
@@ -160,7 +158,7 @@ assert.equal(assigned.type,'created');assert.ok(assigned.unread>0)
 const assignedShare=await call(chat,'POST','/api/discussions',owner,{action:'share',threadId:assigned.threadId})
 await call(chat,'POST','/api/discussions',guest,{action:'import',shareToken:assignedShare.token})
 await call(planner,'DELETE','/api/planner',stranger,{id:assignedId,groupId,revision:1})
-sqlite.prepare("UPDATE entry_guests SET created_at=(SELECT created_at FROM entry_changes WHERE thread_id=? AND kind='cancelled' ORDER BY created_at DESC LIMIT 1) WHERE token=?").run(assigned.threadId,assignedShare.token)
+;(await sqlite.prepare("UPDATE entry_guests SET created_at=(SELECT created_at FROM entry_changes WHERE thread_id=? AND kind='cancelled' ORDER BY created_at DESC LIMIT 1) WHERE token=?").run(assigned.threadId,assignedShare.token))
 const cancelled=(await call(inbox,'GET','/api/inbox',owner)).items.find(e=>e.threadId===assigned.threadId)
 assert.equal(cancelled.type,'cancelled');assert.equal(cancelled.canOpen,false)
 const guestCancellation=(await call(inbox,'GET','/api/inbox',guest)).items.find(e=>e.threadId===assigned.threadId)
@@ -189,7 +187,7 @@ const familyFastId=crypto.randomUUID(),familyMinimal=await planner.PUT(new Reque
 assert.equal(familyMinimal.status,200);assert.deepEqual(await familyMinimal.json(),{saved:true})
 assert.equal((await call(planner,'GET','/api/planner',owner)).events.find(e=>e.id===familyFastId).title,'Familienchat sofort')
 
-for(let i=0;i<70;i++)sqlite.prepare('INSERT INTO entry_messages (id,thread_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),thread.id,owner.id,`page-${i}`,'2028-01-01T00:00:00.000Z')
+for(let i=0;i<70;i++)(await sqlite.prepare('INSERT INTO entry_messages (id,thread_id,author_id,body,created_at) VALUES (?,?,?,?,?)').run(crypto.randomUUID(),thread.id,owner.id,`page-${i}`,'2028-01-01T00:00:00.000Z'))
 const page=await call(chat,'GET',`/api/discussions?thread=${thread.id}`,owner),cursor=`${page.messages[0].createdAt}|${page.messages[0].id}`,previous=await call(chat,'GET',`/api/discussions?thread=${thread.id}&before=${encodeURIComponent(cursor)}`,owner);assert.equal(new Set([...page.messages,...previous.messages].map(m=>m.id)).size,75)
 console.log('PASS: chat persistence, owner/guest access, isolated sharing, external replies, calendar import, image/audio uploads and retrieval, MIME spoof rejection, private/due reminders, revocation, legacy API isolation, to-do handover, optional dates, scheduled/undated shared tasks and events, shared chat after import, swipe thresholds, equal-timestamp pagination, private inbox aggregation, images/audio/shares, event changes, no-op edits, read states, new activity after read, cancelled entries and revoked inbox access, suppression of own inbox/push updates, absent/stale actor headers and notifications for other recipients, minimal chat saves, unchanged draft detection and bounded scroll elasticity.')
-sqlite.close()
+await sqlite.close()

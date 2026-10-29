@@ -17,11 +17,12 @@ import EntryChat, { type ChatTarget } from './entry-chat';
 import ReminderListener from './reminder-listener';
 import { clientId } from '@/lib/discussions';
 import { unchangedChatDraft } from '@/lib/chat-draft';
+import { APP_BASE, appPath } from '@/lib/app-base'
 const IDENTITY_KEY = 'dmd:planner-identity:v1';
 const GROUP_KEY = 'dmd:planner-group:v1';
 const fmt = (date: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('de-DE', options).format(fromDay(date));
 const longDay = (day: string) => fmt(day, { weekday: 'long', day: 'numeric', month: 'long' });
-const legacyPhoto = (id: string) => LEGACY_PEOPLE.some(p => p.id === id) ? `/profiles/${id}.jpeg` : undefined;
+const legacyPhoto = (id: string) => LEGACY_PEOPLE.some(p => p.id === id) ? appPath(`/profiles/${id}.jpeg`) : undefined;
 function Avatar({ person, small = false }: {
     person: PlannerPerson;
     small?: boolean;
@@ -29,7 +30,7 @@ function Avatar({ person, small = false }: {
     const photo = legacyPhoto(person.id);
     return <span className={`p-avatar ${small ? 'p-avatar--small' : ''}`} style={{ background: `${person.color}18`, color: person.color }}>{photo ? <img src={photo} alt=""/> : person.name.slice(0, 2).toUpperCase()}</span>;
 }
-function Brand() { return <span className="p-brand"><span className="p-brand-mark"><img src="/branding/handoff-v1-logo-128.png" width={128} height={128} alt="" decoding="async" /></span><span><strong>Done</strong><small>Dein Tag. Eure Pläne.</small></span></span>; }
+function Brand() { return <span className="p-brand"><span className="p-brand-mark"><img src={appPath("/branding/handoff-v1-logo-128.png")} width={128} height={128} alt="" decoding="async" /></span><span><strong>Done</strong><small>Dein Tag. Eure Pläne.</small></span></span>; }
 function GroupIcon({ group }: {
     group: PlannerGroup;
 }) { return <span className="p-group-icon" style={{ color: group.color, background: `${group.color}15` }}>{group.category === 'Arbeit' ? <BriefcaseBusiness /> : group.category === 'Familie' ? <Home /> : <Users />}</span>; }
@@ -162,7 +163,7 @@ export default function PlannerApp() {
             setReady(true);
         }
         if ('serviceWorker' in navigator)
-            void navigator.serviceWorker.register('/sw.js').then(r => r.update()).catch(() => { });
+            void navigator.serviceWorker.register(appPath('/sw.js'), { scope: APP_BASE }).then(r => r.update()).catch(() => { });
         return () => { active = false; };
     }, [request, acceptData, signIn]);
     useEffect(() => {
@@ -276,7 +277,7 @@ export default function PlannerApp() {
         setScreen('calendar');
     } toast.success(groupDialog === 'create' ? 'Deine Gruppe ist erstellt.' : 'Du bist der Gruppe beigetreten.'); }}/>}
     <Dialog open={!!invite} onOpenChange={open => !open && setInvite(null)}><DialogContent className="planner-dialog"><DialogHeader><DialogTitle>Zu {invite?.name} einladen</DialogTitle><DialogDescription>Teile den Code oder Einladungslink mit den Personen, die dieser Gruppe beitreten sollen.</DialogDescription></DialogHeader><div className="p-invite-code">{invite?.inviteCode}</div><p className="p-section-note">Der Code erlaubt den Beitritt zu dieser Gruppe. Mitglieder können die Kalender der Gruppe ansehen und bearbeiten.</p><button className="p-button p-button--full" onClick={async () => { try {
-        await navigator.clipboard.writeText(`${window.location.origin}/?invite=${invite?.inviteCode}`);
+        await navigator.clipboard.writeText(`${window.location.origin}${APP_BASE}?invite=${invite?.inviteCode}`);
         toast.success('Einladungslink kopiert.');
     }
     catch {
