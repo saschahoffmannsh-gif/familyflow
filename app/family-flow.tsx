@@ -260,7 +260,7 @@ function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? "brand--compact" : ""}`} aria-label="Done">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="brand__mark" src={appPath("/branding/handoff-v1-logo-128.png")} alt="" />
+      <img className="brand__mark" src={appPath("/branding/done-v3-logo-128.png")} alt="" />
       {!compact && (
         <div>
           <div className="brand__name"><span className="brand__line">Du machst</span>{" "}<span className="brand__line">das <span className="brand__yellow">jetzt!</span></span></div>

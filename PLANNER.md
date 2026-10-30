@@ -31,7 +31,7 @@ Migration 0012 ergänzt ausschließlich drei Spalten und einen Index an `planner
 
 ## Logo
 
-Die freigegebene Variante 4 („Aufträge weitergeben“) ist das gemeinsame Logo für App-Kopf, Home-Bildschirm, Browser und Mitteilungen. Das vollflächige Original liegt unter `assets/branding/handoff-v1-master.png`; Produktionsgrößen unter `public/branding/`. Das Manifest verweist auf 192/512 Pixel, der Apple-Touch-Link auf die opake 180-Pixel-Version. Versionierte URLs und Service-Worker-Cache v23 vermeiden die Wiederverwendung der alten Bilder. Historische Icon-Pfade bleiben als kompatible Kopien verfügbar. Der App-Name und die Manifest-ID bleiben gleich.
+Das Logo (v3) ist ein schwarzes Quadrat mit weißem Kreis und abgerundetem Haken – für App-Kopf, Home-Bildschirm, Browser und Mitteilungen. Die Vorlage liegt unter `assets/branding/done-v3-master.svg`; die Produktionsgrößen (32, 128, 180, 192, 512 sowie maskable 192/512) liegen unter `public/branding/done-v3-*` und werden aus der SVG gerendert. Der Kreis liegt vollständig in der Maskable-Schutzzone. Versionierte Dateinamen, `manifest.webmanifest?v=done-v3` und ein neuer Service-Worker-Cache sorgen für die Aktualisierung.
 
 ## Einheitliche Kartenansicht (Variante 3)
 

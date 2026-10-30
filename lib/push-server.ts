@@ -36,8 +36,8 @@ export async function sendPushToSubscription(db: D1Database, row: SubscriptionRo
     const payload = await buildPushPayload({
       data: {
         ...notification,
-        icon: "/branding/handoff-v1-icon-192.png",
-        badge: "/branding/handoff-v1-icon-192.png",
+        icon: "/branding/done-v3-icon-192.png",
+        badge: "/branding/done-v3-icon-192.png",
       },
       options: { ttl: 60 * 60 },
     }, asSubscription(row), {

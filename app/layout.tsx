@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Dein persönlicher Kalender für Familie, Team und Arbeit.",
   applicationName: "Done",
   referrer: "no-referrer",
-  manifest: "/manifest.webmanifest?v=done-v1",
+  manifest: "/manifest.webmanifest?v=done-v3",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -16,9 +16,9 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: [{ url: "/branding/handoff-v1-favicon-32.png", sizes: "32x32", type: "image/png" }, { url: "/branding/handoff-v1-icon-192.png", sizes: "192x192", type: "image/png" }],
-    shortcut: "/branding/handoff-v1-favicon-32.png",
-    apple: [{ url: "/branding/handoff-v1-apple-180.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/branding/done-v3-favicon-32.png", sizes: "32x32", type: "image/png" }, { url: "/branding/done-v3-icon-192.png", sizes: "192x192", type: "image/png" }],
+    shortcut: "/branding/done-v3-favicon-32.png",
+    apple: [{ url: "/branding/done-v3-apple-180.png", sizes: "180x180", type: "image/png" }],
   },
 }
 

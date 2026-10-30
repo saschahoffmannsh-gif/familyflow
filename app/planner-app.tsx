@@ -31,7 +31,7 @@ function Avatar({ person, small = false }: {
     const photo = legacyPhoto(person.id);
     return <span className={`p-avatar ${small ? 'p-avatar--small' : ''}`} style={{ background: `${person.color}18`, color: person.color }}>{photo ? <img src={photo} alt=""/> : person.name.slice(0, 2).toUpperCase()}</span>;
 }
-function Brand() { return <span className="p-brand"><span className="p-brand-mark"><img src={appPath("/branding/handoff-v1-logo-128.png")} width={128} height={128} alt="" decoding="async" /></span><span><strong>Done</strong><small>Dein Tag. Eure Pläne.</small></span></span>; }
+function Brand() { return <span className="p-brand"><span className="p-brand-mark"><img src={appPath("/branding/done-v3-logo-128.png")} width={128} height={128} alt="" decoding="async" /></span><span><strong>Done</strong><small>Dein Tag. Eure Pläne.</small></span></span>; }
 function GroupIcon({ group }: {
     group: PlannerGroup;
 }) { return <span className="p-group-icon" style={{ color: group.color, background: `${group.color}15` }}>{group.category === 'Arbeit' ? <BriefcaseBusiness /> : group.category === 'Familie' ? <Home /> : <Users />}</span>; }
