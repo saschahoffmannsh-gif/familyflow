@@ -455,3 +455,9 @@ body { background: var(--p-canvas); }
 .p-cat-list:focus-visible li.is-active{box-shadow:inset 0 0 0 2px #a88aec}
 @keyframes p-cat-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
 .p-form-row .p-form-label{margin-bottom:8px}
+
+/* Zähler für offene Aufträge am Reiter „Listen“ */
+.p-count-badge{display:inline-grid;place-items:center;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:#7446c5;color:#fff;font-size:9px;font-weight:750;line-height:1}
+.p-sidebar nav>button .p-count-badge{margin-left:auto}
+.p-mobile-nav .p-nav-lists{position:relative}
+.p-mobile-nav .p-nav-lists>.p-count-badge{position:absolute;top:0;left:calc(50% + 7px);border:2px solid #fff;height:19px;min-width:19px}

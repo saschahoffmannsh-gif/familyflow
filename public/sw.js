@@ -1,4 +1,4 @@
-const CACHE_NAME = "done-v34-ohne-ki"
+const CACHE_NAME = "done-v35-ohne-chat"
 // GitHub Pages: die App liegt unter /familyflow/. Alle App-Pfade werden relativ zum Scope des Service Workers gebildet.
 const SCOPE = new URL(self.registration.scope)
 const scoped = (path) => {

@@ -672,7 +672,7 @@ function ShoppingListView({
   )
 }
 
-export default function FamilyFlowApp({ initialView = "home", toolsOnly = false, embedded = false, onOpenChat }: { initialView?: View; toolsOnly?: boolean; embedded?: boolean; onOpenChat?: (target: ChatTarget) => void } = {}) {
+export default function FamilyFlowApp({ initialView = "home", toolsOnly = false, embedded = false, onOpenChat, onOpenTasksChange }: { initialView?: View; toolsOnly?: boolean; embedded?: boolean; onOpenChat?: (target: ChatTarget) => void; onOpenTasksChange?: (count: number) => void } = {}) {
   const nowRef = useRef(new Date())
   const todayKey = localDateKey(nowRef.current)
   const [ready, setReady] = useState(false)
@@ -719,6 +719,10 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
   const calendarSwipeRef = useRef<{ x: number; y: number } | null>(null)
   const suppressCalendarClickRef = useRef(false)
   const monthTransitionSequenceRef = useRef(0)
+
+  useEffect(() => {
+    if (syncStatus === "online") onOpenTasksChange?.(todoItems.filter((item) => item.kind === "task").length)
+  }, [todoItems, syncStatus, onOpenTasksChange])
 
   const syncFromCloud = useCallback(async (showError = false) => {
     if (pendingWritesRef.current > 0) return false
