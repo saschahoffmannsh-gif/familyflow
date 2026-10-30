@@ -32,3 +32,5 @@
 .p-people-field{margin-bottom:2px}
 .todo-card__for{display:inline-flex;align-self:flex-start;align-items:center;gap:5px;margin-top:6px;padding:3px 8px;border-radius:7px;background:#ece4fb;color:#6633b8;font-size:12px;font-weight:650}
 .todo-people .p-cat-trigger{font-size:15px!important}
+.p-people-list.is-up{top:auto;bottom:calc(100% + 6px)}
+.p-sub-dialog .p-editor-head,.p-sub-dialog .p-text-button{justify-content:flex-start;align-self:flex-start}

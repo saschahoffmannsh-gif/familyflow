@@ -26,11 +26,14 @@ export default function PeopleSelect({ id, labelId, members, subgroups = [], val
     ...subgroups.filter(s => s.members.length).map(s => ({ key: `sub-${s.id}`, kind: 'subgroup' as const, label: s.name, ids: s.members, count: s.members.length })),
     ...members.map(m => ({ key: `p-${m.id}`, kind: 'person' as const, label: m.name, ids: [m.id], color: m.color })),
   ], [members, subgroups]);
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(0), [up, setUp] = useState(false);
   const isOn = (o: Option) => o.ids.length > 0 && o.ids.every(i => value.includes(i));
   const chips = selectionChips(value, members, subgroups);
   useEffect(() => {
     if (!open) return;
+    // Liste nach oben öffnen, wenn im Dialog darunter kein Platz ist.
+    const box = trigger.current?.getBoundingClientRect(), frame = trigger.current?.closest('[role=dialog]')?.getBoundingClientRect();
+    if (box) { const bottom = Math.min(window.innerHeight, frame?.bottom ?? window.innerHeight), top = Math.max(0, frame?.top ?? 0); setUp(bottom - box.bottom < 380 && box.top - top > bottom - box.bottom); }
     requestAnimationFrame(() => list.current?.focus({ preventScroll: true }));
     const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) onOpenChange(false); };
     document.addEventListener('pointerdown', outside, true);
@@ -59,7 +62,7 @@ export default function PeopleSelect({ id, labelId, members, subgroups = [], val
       <span className="p-people-chips">{chips.map(c => <span key={c.key} className={`p-people-chip ${c.group ? 'is-group' : ''}`} style={c.color ? { '--chip-color': c.color } as React.CSSProperties : undefined}>{c.group ? <Users size={12} aria-hidden="true"/> : <i aria-hidden="true"/>}{c.label}</span>)}</span>
       <ChevronDown className="p-cat-chevron" size={17} aria-hidden="true"/>
     </button>
-    {open && <div className="p-cat-list p-people-list">
+    {open && <div className={`p-cat-list p-people-list ${up ? 'is-up' : ''}`}>
       <ul ref={list} id={listId} role="listbox" aria-multiselectable="true" tabIndex={-1} aria-labelledby={labelId} aria-activedescendant={`${listId}-${active}`} onKeyDown={onKey}>
         {options.map((o, i) => {
           const head = o.kind !== section && o.kind !== 'all' ? (section = o.kind, o.kind === 'subgroup' ? 'Untergruppen' : 'Personen') : (section = o.kind, '');
