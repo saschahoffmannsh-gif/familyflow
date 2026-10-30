@@ -1,10 +1,11 @@
 # Hosting: GitHub Pages + Supabase
 
 - **Frontend**: statischer Vite-Build (`pnpm build:pages`, Basis `/familyflow/`, SPA-Fallback `404.html`), deployt per GitHub Actions (`.github/workflows/pages.yml`) nach https://saschahoffmannsh-gif.github.io/familyflow/
-- **Backend**: Supabase Edge Function `familyflow` (Projekt `wlujgkbtpjxuekwsgnmg`, `--no-verify-jwt`). Die Original-API-Routen aus `app/api/**` werden unverändert per esbuild gebündelt (`pnpm build:function`).
+- **Backend**: Supabase Edge Function `familyflow` im eigenen Supabase-Projekt „Familyflow“ (`vzjcwnuylyoufrvulgcl`, Region eu-central-1, `--no-verify-jwt`). Die Original-API-Routen aus `app/api/**` werden unverändert per esbuild gebündelt (`pnpm build:function`).
 - **Datenbank**: Postgres-Schema `familyflow` (`supabase/schema.sql`, `supabase/seed.sql`, `supabase/rpc.sql`). Ein D1-kompatibler Adapter (`server/d1-postgres.ts`) übersetzt die SQLite-Abfragen und führt sie über die RPC `public.familyflow_exec` (nur `service_role`) aus.
 - **Dateien**: privater Storage-Bucket `familyflow-media` statt R2.
-- **Push**: neue VAPID-Schlüssel; der private Schlüssel, `PROFILE_CHANGE_CODE` und `DAILY_PUSH_TOKEN` liegen nur als Function-Secrets vor. Täglicher Push um 07:00 (Berlin) per `pg_cron`.
+- **Push**: neue VAPID-Schlüssel; der private Schlüssel, `PROFILE_CHANGE_CODE` und `DAILY_PUSH_TOKEN` liegen nur als Function-Secrets vor. Täglicher Push um 07:00 (Berlin) per `pg_cron` (Job `familyflow-daily-push` im Projekt `vzjcwnuylyoufrvulgcl`).
+- **Projekt-Historie**: Bis 30.10.2026 lief FamilyFlow im gemeinsamen Projekt `galaxy-empire`; Schema, Daten, Dateien, Function und Cron-Job wurden vollständig in das eigene Projekt umgezogen und dort entfernt.
 
 Deploy der Function: `pnpm deploy:function` (benötigt `SUPABASE_ACCESS_TOKEN` in der Umgebung).
 

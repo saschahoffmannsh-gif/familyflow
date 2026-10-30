@@ -7,8 +7,8 @@ import { defineConfig } from "vite"
 
 const root = import.meta.dirname
 // Öffentliche Adresse der Supabase Edge Function (kein Geheimnis).
-process.env.VITE_API_BASE ||= "https://wlujgkbtpjxuekwsgnmg.supabase.co/functions/v1/familyflow"
-process.env.VITE_API_REGION ||= "eu-west-1"
+process.env.VITE_API_BASE ||= "https://vzjcwnuylyoufrvulgcl.supabase.co/functions/v1/familyflow"
+process.env.VITE_API_REGION ||= "eu-central-1"
 export default defineConfig({
   root: path.join(root, "web"),
   base: process.env.PAGES_BASE || "/familyflow/",

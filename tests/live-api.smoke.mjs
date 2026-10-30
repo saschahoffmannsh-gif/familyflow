@@ -2,9 +2,9 @@
 // FF_API_BASE=https://<ref>.supabase.co/functions/v1/familyflow [FF_PROFILE_CHANGE_CODE=...] node tests/live-api.smoke.mjs
 // Legt Testdaten (Profile „Smoke …“, Gruppe, Termin, Chat mit Bild, Aufgabe/Einkauf) an und entfernt Termine/Listeneinträge wieder.
 import assert from 'node:assert/strict'
-const base = (process.env.FF_API_BASE || 'https://wlujgkbtpjxuekwsgnmg.supabase.co/functions/v1/familyflow').replace(/\/$/, '')
+const base = (process.env.FF_API_BASE || 'https://vzjcwnuylyoufrvulgcl.supabase.co/functions/v1/familyflow').replace(/\/$/, '')
 const origin = process.env.FF_ORIGIN || 'https://saschahoffmannsh-gif.github.io'
-const region = process.env.FF_REGION ?? 'eu-west-1'
+const region = process.env.FF_REGION ?? 'eu-central-1'
 const results = []
 async function step(name, fn) { const t = Date.now(); try { const v = await fn(); results.push(`PASS ${name} (${Date.now() - t} ms)`); return v } catch (e) { results.push(`FAIL ${name}: ${e.message}`); throw e } }
 async function call(method, path, key, body, status = 200) {

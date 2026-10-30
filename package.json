@@ -14,7 +14,7 @@
     "db:generate": "drizzle-kit generate",
     "build:pages": "vite build --config vite.pages.config.ts",
     "build:function": "node scripts/build-function.mjs",
-    "deploy:function": "node scripts/build-function.mjs && supabase functions deploy familyflow --project-ref wlujgkbtpjxuekwsgnmg --no-verify-jwt --use-api",
+    "deploy:function": "node scripts/build-function.mjs && supabase functions deploy familyflow --project-ref vzjcwnuylyoufrvulgcl --no-verify-jwt --use-api",
     "test": "node --test tests/planner-api.test.mjs && node tests/discussions.integration.mjs && node --test --experimental-strip-types tests/planner.test.ts tests/calendar-import.test.ts tests/discussions.test.ts",
     "test:live": "node tests/live-api.smoke.mjs",
     "test:e2e": "node tests/e2e-pages.mjs"

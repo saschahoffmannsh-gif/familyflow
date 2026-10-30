@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 const appUrl = process.env.FF_APP_URL || 'https://saschahoffmannsh-gif.github.io/familyflow/'
-const apiBase = process.env.FF_API_BASE || 'https://wlujgkbtpjxuekwsgnmg.supabase.co/functions/v1/familyflow'
+const apiBase = process.env.FF_API_BASE || 'https://vzjcwnuylyoufrvulgcl.supabase.co/functions/v1/familyflow'
 const shots = process.env.FF_SHOTS || '/workspace/familyflow_shots'
 const chrome = process.env.CHROME_PATH || '/usr/bin/google-chrome'
 const image = path.resolve(import.meta.dirname, '../public/branding/handoff-v1-icon-192.png')
@@ -44,7 +44,7 @@ try {
     assert.equal(r.status(), 404); assert.equal(await p2.title(), 'Done'); await p2.close()
   })
   await step('API erreichbar (Health + CORS von der Pages-Herkunft)', async () => {
-    const health = await page.evaluate(async base => (await fetch(`${base}/health?db=1`, { headers: { 'x-region': 'eu-west-1' } })).json(), apiBase)
+    const health = await page.evaluate(async base => (await fetch(`${base}/health?db=1`, { headers: { 'x-region': 'eu-central-1' } })).json(), apiBase)
     assert.equal(health.ok, true); assert.equal(health.db.ok, true)
   })
   await step('Profil anlegen', async () => {
