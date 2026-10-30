@@ -31,6 +31,9 @@ import {
 } from "lucide-react"
 import { toast, Toaster } from "sonner"
 import ChatLaunch from "./chat-launch"
+import PeopleSelect from "./people-select"
+import SubgroupDialog from "./subgroup-dialog"
+import { offeredTo, selectionLabel, type PlannerGroup, type PlannerPerson } from "@/lib/planner"
 import ActivityBadges from "./entry-activity"
 import { clientId } from "@/lib/discussions"
 import type { ChatTarget } from "./entry-chat"
@@ -476,17 +479,31 @@ function ItemEditor({
   )
 }
 
+function familyPeople(group?: PlannerGroup): PlannerPerson[] {
+  const ids = Object.keys(PEOPLE) as PersonId[]
+  return ids.map((id) => group?.members.find((m) => m.id === id) ?? { id, name: PEOPLE[id].name, color: PEOPLE[id].color })
+}
+
 function TodoCreateDialog({
   kind,
   onClose,
   onSave,
   onOpenChat,
+  familyGroup,
+  onSubgroup,
 }: {
   onOpenChat?: (target: ChatTarget) => void
   kind: TodoItem["kind"]
   onClose: () => void
-  onSave: (title: string, note: string, date?: string, id?: string) => Promise<TodoItem | null>
+  onSave: (title: string, note: string, date?: string, id?: string, audience?: PersonId[]) => Promise<TodoItem | null>
+  familyGroup?: PlannerGroup
+  onSubgroup?: (body: Record<string, unknown>) => Promise<void>
 }) {
+  const members = familyPeople(familyGroup)
+  const [people, setPeople] = useState<string[]>(() => members.map((m) => m.id))
+  const [pickOpen, setPickOpen] = useState(false)
+  const [manage, setManage] = useState(false)
+  const audience = people.length < members.length ? people as PersonId[] : undefined
   const [entryId] = useState(() => clientId())
   const [title, setTitle] = useState("")
   const [note, setNote] = useState("")
@@ -498,7 +515,7 @@ function TodoCreateDialog({
     const cleanTitle = title.trim()
     if (!cleanTitle || busy) return
     setBusy(true)
-    const saved = await onSave(cleanTitle, note.trim(), date || undefined, entryId)
+    const saved = await onSave(cleanTitle, note.trim(), date || undefined, entryId, audience)
     setBusy(false)
     if (saved) onClose()
   }
@@ -508,7 +525,7 @@ function TodoCreateDialog({
     onOpenChat({entry:{kind:"todo",id:entryId},initialPanel,preview:{title:title.trim(),kind,date:date||undefined,note:note.trim()},prepare:async()=>{
       setBusy(true)
       try {
-        const saved=await onSave(title.trim(),note.trim(),date||undefined,entryId)
+        const saved=await onSave(title.trim(),note.trim(),date||undefined,entryId,audience)
         if(!saved)throw new Error("Der Eintrag konnte nicht gespeichert werden. Bitte erneut versuchen.")
         onClose()
       } finally { setBusy(false) }
@@ -517,7 +534,7 @@ function TodoCreateDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="todo-dialog" swipeToClose={!busy}>
+      <DialogContent className="todo-dialog planner-dialog--todo" swipeToClose={!busy && !pickOpen} onEscapeKeyDown={(event) => { if (pickOpen) { event.preventDefault(); setPickOpen(false) } }}>
         <form onSubmit={submit}>
           <DialogHeader>
             <span className={`todo-dialog__kind todo-dialog__kind--${kind}`}>{kind === "task" ? <ClipboardCheck aria-hidden="true" /> : <CalendarDays aria-hidden="true" />}{kind === "task" ? "Offener Auftrag" : "Offener Termin"}</span>
@@ -527,12 +544,14 @@ function TodoCreateDialog({
           <div className="todo-dialog__fields">
             <div className="form-field"><Label htmlFor="todo-title">Was steht an?</Label><Input id="todo-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "task" ? "z. B. Keller aufräumen" : "z. B. Termin beim Tierarzt"} maxLength={120} required /></div>
             {onOpenChat && <ChatLaunch fresh disabled={!title.trim() || busy} onClick={() => void openChat()}/>}
+            <div className="form-field todo-people"><Label id="todo-people-label">Für</Label><PeopleSelect id="todo-people" labelId="todo-people-label" members={members} subgroups={familyGroup?.subgroups} value={people} onChange={setPeople} open={pickOpen} onOpenChange={setPickOpen} onManage={familyGroup && onSubgroup ? () => setManage(true) : undefined} disabled={busy} /></div>
             <div className="form-field"><Label htmlFor="todo-planned-date">Datum <span>optional</span></Label><Input id="todo-planned-date" type="date" value={date} onInput={(event) => setDate(event.currentTarget.value)} onChange={(event) => setDate(event.target.value)} /><small className="todo-date-note">{date ? "Der Tag wird beim Übernehmen beibehalten." : "Ohne Datum kann die Person später einen Tag wählen."}</small></div>
             <div className="form-field"><Label htmlFor="todo-note">Notiz <span>optional</span></Label><Textarea id="todo-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Weitere Informationen" maxLength={1000} rows={3} /></div>
           </div>
 
           <DialogFooter className="todo-dialog__actions"><Button type="button" variant="ghost" onClick={onClose}>Abbrechen</Button><Button type="submit" disabled={!title.trim() || busy}>{busy ? "Speichert …" : "Offen eintragen"}</Button></DialogFooter>
         </form>
+        {manage && familyGroup && onSubgroup && <SubgroupDialog group={familyGroup} onClose={() => setManage(false)} onSave={onSubgroup} />}
       </DialogContent>
     </Dialog>
   )
@@ -672,7 +691,7 @@ function ShoppingListView({
   )
 }
 
-export default function FamilyFlowApp({ initialView = "home", toolsOnly = false, embedded = false, onOpenChat, onOpenTasksChange }: { initialView?: View; toolsOnly?: boolean; embedded?: boolean; onOpenChat?: (target: ChatTarget) => void; onOpenTasksChange?: (count: number) => void } = {}) {
+export default function FamilyFlowApp({ initialView = "home", toolsOnly = false, embedded = false, onOpenChat, onOpenTasksChange, familyGroup, onSubgroup }: { initialView?: View; toolsOnly?: boolean; embedded?: boolean; onOpenChat?: (target: ChatTarget) => void; onOpenTasksChange?: (count: number) => void; familyGroup?: PlannerGroup; onSubgroup?: (body: Record<string, unknown>) => Promise<void> } = {}) {
   const nowRef = useRef(new Date())
   const todayKey = localDateKey(nowRef.current)
   const [ready, setReady] = useState(false)
@@ -721,8 +740,8 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
   const monthTransitionSequenceRef = useRef(0)
 
   useEffect(() => {
-    if (syncStatus === "online") onOpenTasksChange?.(todoItems.filter((item) => item.kind === "task").length)
-  }, [todoItems, syncStatus, onOpenTasksChange])
+    if (syncStatus === "online") onOpenTasksChange?.(todoItems.filter((item) => item.kind === "task" && offeredTo(item, deviceUser ?? "sascha")).length)
+  }, [todoItems, syncStatus, onOpenTasksChange, deviceUser])
 
   const syncFromCloud = useCallback(async (showError = false) => {
     if (pendingWritesRef.current > 0) return false
@@ -979,6 +998,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
   )
 
   const currentUser = deviceUser ?? "sascha"
+  const visibleTodos = todoItems.filter((item) => offeredTo(item, currentUser) || item.createdBy === currentUser)
   const nextSevenDays = useMemo(
     () => Array.from({ length: 7 }, (_, index) => {
       const date = dateFromKey(todayKey)
@@ -1228,7 +1248,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
     }
   }
 
-  async function createTodoItem(kind: TodoItem["kind"], title: string, note: string, date?: string, id?: string) {
+  async function createTodoItem(kind: TodoItem["kind"], title: string, note: string, date?: string, id?: string, audience?: PersonId[]) {
     const item: TodoItem = {
       id: id || `todo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       kind,
@@ -1236,6 +1256,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
       ...(note ? { note } : {}),
       createdBy: currentUser,
       ...(date ? { date } : {}),
+      ...(audience?.length ? { audience } : {}),
     }
 
     pendingWritesRef.current += 1
@@ -1692,7 +1713,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
           <section className="screen screen--todo" aria-labelledby="todo-title">
             <div className="todo-heading">
               <div><span className="eyebrow">Gemeinsam anpacken</span><h1 id="todo-title">Offene To-dos</h1><p>Hier landet alles, das noch keine Person und keinen festen Tag hat.</p></div>
-              <span className="todo-heading__count">{todoItems.length}</span>
+              <span className="todo-heading__count">{visibleTodos.length}</span>
             </div>
 
             <button type="button" className="shopping-list-card" onClick={() => setShoppingOpen(true)} aria-label={`Einkaufsliste öffnen, ${shoppingItems.length} ${shoppingItems.length === 1 ? "Artikel" : "Artikel"}`}>
@@ -1707,9 +1728,9 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
             </div>
 
             <section className="todo-pool" aria-labelledby="todo-pool-title">
-              <div className="todo-pool__heading"><div><h2 id="todo-pool-title">Kann jemand übernehmen?</h2><p>{todoItems.length ? `${todoItems.length} ${todoItems.length === 1 ? "offener Eintrag" : "offene Einträge"}` : "Gerade ist alles verteilt"}</p></div><ListTodo aria-hidden="true" /></div>
+              <div className="todo-pool__heading"><div><h2 id="todo-pool-title">Kann jemand übernehmen?</h2><p>{visibleTodos.length ? `${visibleTodos.length} ${visibleTodos.length === 1 ? "offener Eintrag" : "offene Einträge"}` : "Gerade ist alles verteilt"}</p></div><ListTodo aria-hidden="true" /></div>
               <div className="todo-list">
-                {todoItems.length ? todoItems.map((item) => (
+                {visibleTodos.length ? visibleTodos.map((item) => (
                   <article className={`todo-card todo-card--${item.kind}`} key={item.id}>
                     <span className="todo-card__icon">{item.kind === "task" ? <ClipboardCheck aria-hidden="true" /> : <CalendarDays aria-hidden="true" />}</span>
                     <div className="todo-card__body">
@@ -1718,11 +1739,12 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
                       {item.date && <span className="todo-card__date"><CalendarDays size={14}/>{formatShortDate(item.date)}</span>}
                       {item.note && <p>{item.note}</p>}
                       <span className="todo-card__creator"><ProfileAvatar personId={item.createdBy} avatars={state.avatars} size="xs" />Eingetragen von {PEOPLE[item.createdBy].name}</span>
+                      {item.audience && <span className="todo-card__for">Für {selectionLabel(item.audience, familyPeople(familyGroup), familyGroup?.subgroups)}</span>}
                       <ActivityBadges activity={item.activity}/>
                     </div>
                     <div className="todo-card__actions">
                       {onOpenChat && <><button type="button" className="todo-card__chat" onClick={() => onOpenChat({entry:{kind:"todo",id:item.id},preview:item})}>Chat & Anhänge</button><button type="button" className="todo-card__chat" onClick={() => onOpenChat({entry:{kind:"todo",id:item.id},preview:item,initialPanel:"share"})}><Share2 size={14}/>Teilen</button></>}
-                      <button type="button" className="todo-card__take" onClick={() => setTakingTodo(item)}>Übernehmen</button>
+                      {offeredTo(item, currentUser) && <button type="button" className="todo-card__take" onClick={() => setTakingTodo(item)}>Übernehmen</button>}
                       {item.createdBy === currentUser && <button type="button" className="todo-card__delete" onClick={() => void deleteTodoItem(item)} aria-label={`${item.title} entfernen`}><Trash2 aria-hidden="true" /></button>}
                     </div>
                   </article>
@@ -1806,7 +1828,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
       {!embedded && <nav className="bottom-nav" aria-label="Hauptnavigation">
         {!toolsOnly && <NavButton active={view === "home"} label="Home" icon={<Home aria-hidden="true" />} onClick={() => setView("home")} />}
         {!toolsOnly && <NavButton active={view === "calendar"} label="Kalender" icon={<CalendarDays aria-hidden="true" />} onClick={() => setView("calendar")} />}
-        <NavButton active={view === "todo"} label="To-do" icon={<ListTodo aria-hidden="true" />} badge={todoItems.length + (shoppingItems.length > 0 ? 1 : 0)} onClick={() => { setView("todo"); setShoppingOpen(false) }} />
+        <NavButton active={view === "todo"} label="To-do" icon={<ListTodo aria-hidden="true" />} badge={visibleTodos.length + (shoppingItems.length > 0 ? 1 : 0)} onClick={() => { setView("todo"); setShoppingOpen(false) }} />
         <NavButton active={view === "family"} label={toolsOnly ? "Einstellungen" : "Familie"} icon={<Users aria-hidden="true" />} onClick={() => setView("family")} />
       </nav>}
 
@@ -1908,7 +1930,7 @@ export default function FamilyFlowApp({ initialView = "home", toolsOnly = false,
         />
       )}
 
-      {todoCreateKind && <TodoCreateDialog onOpenChat={onOpenChat} key={todoCreateKind} kind={todoCreateKind} onClose={() => setTodoCreateKind(null)} onSave={(title, note, date, id) => createTodoItem(todoCreateKind, title, note, date, id)} />}
+      {todoCreateKind && <TodoCreateDialog onOpenChat={onOpenChat} key={todoCreateKind} kind={todoCreateKind} onClose={() => setTodoCreateKind(null)} familyGroup={familyGroup} onSubgroup={onSubgroup} onSave={(title, note, date, id, audience) => createTodoItem(todoCreateKind, title, note, date, id, audience)} />}
 
       {takingTodo && <TodoTakeDialog key={takingTodo.id} item={takingTodo} person={currentUser} avatars={state.avatars} today={todayKey} onClose={() => setTakingTodo(null)} onTake={(date, completed) => takeTodoItem(takingTodo, date, completed)} />}
 

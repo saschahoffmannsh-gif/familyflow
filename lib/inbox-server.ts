@@ -1,24 +1,25 @@
 import { getDb } from '@/db'
 import { ChatError, inGroup, sourceFor, type ThreadRow } from './discussion-server'
 import type { ChatEntry, EntryRef } from './discussions'
-import type { PlannerPerson } from './planner'
+import { parseAudience, type PlannerPerson } from './planner'
 import type { InboxData, InboxItem, InboxType } from './inbox'
 
 type Snapshot = { entry: ChatEntry; groupId: string; people: string[] }
 export async function entrySnapshot(ref: EntryRef): Promise<Snapshot> {
   const db = getDb(), source = await sourceFor(ref.kind, ref.id)
-  let person: string | null = null
+  let person: string | null = null, audience: string[] | undefined
   if (ref.kind === 'todo') {
     const todo = await db.prepare('SELECT created_by FROM todo_items WHERE id=?').bind(ref.id).first<{created_by:string}>()
     if (todo) person = todo.created_by
     else return entrySnapshot({kind:'event',id:`todo-${ref.id}`})
   } else {
-    const row = await db.prepare('SELECT person FROM planner_events WHERE id=?').bind(ref.id).first<{person:string}>()
-      || await db.prepare("SELECT CASE WHEN kind='task' THEN assignee ELSE COALESCE(person,'all') END AS person FROM calendar_items WHERE id=?").bind(ref.id).first<{person:string}>()
+    const row = await db.prepare('SELECT person, audience FROM planner_events WHERE id=?').bind(ref.id).first<{person:string;audience:string|null}>()
+      || await db.prepare("SELECT CASE WHEN kind='task' THEN assignee ELSE COALESCE(person,'all') END AS person, audience FROM calendar_items WHERE id=?").bind(ref.id).first<{person:string;audience:string|null}>()
     person = row?.person || null
+    audience = parseAudience(row?.audience)
   }
   const members = await db.prepare('SELECT profile_id FROM planner_members WHERE group_id=?').bind(source.groupId).all<{profile_id:string}>()
-  return {...source, people:members.results.map(m=>m.profile_id).filter(id=>person==='all'||id===person)}
+  return {...source, people:members.results.map(m=>m.profile_id).filter(id=>audience?audience.includes(id):person==='all'||id===person)}
 }
 
 async function threadFor(ref: EntryRef, actor: PlannerPerson) {
@@ -54,8 +55,8 @@ export async function inboxFor(profile: PlannerPerson): Promise<InboxData> {
   // Only personal entries, received links, and changes explicitly addressed to this profile.
   const candidates=await db.prepare(`WITH viewer AS (SELECT ? AS id)
     SELECT t.id,t.source_kind,t.source_id FROM entry_threads t CROSS JOIN viewer v WHERE
-    EXISTS (SELECT 1 FROM planner_events e JOIN planner_members m ON m.group_id=e.group_id WHERE t.source_kind='event' AND t.source_id=e.id AND m.profile_id=v.id AND e.waste_kind IS NULL AND e.person IN (v.id,'all'))
-    OR EXISTS (SELECT 1 FROM calendar_items c JOIN planner_members m ON m.group_id='family' WHERE c.id=CASE WHEN t.source_kind='todo' THEN 'todo-'||t.source_id ELSE t.source_id END AND m.profile_id=v.id AND (CASE WHEN c.kind='task' THEN c.assignee ELSE COALESCE(c.person,'all') END) IN (v.id,'all'))
+    EXISTS (SELECT 1 FROM planner_events e JOIN planner_members m ON m.group_id=e.group_id WHERE t.source_kind='event' AND t.source_id=e.id AND m.profile_id=v.id AND e.waste_kind IS NULL AND (e.person IN (v.id,'all') OR EXISTS (SELECT 1 FROM json_each(e.audience) WHERE value=v.id)))
+    OR EXISTS (SELECT 1 FROM calendar_items c JOIN planner_members m ON m.group_id='family' WHERE c.id=CASE WHEN t.source_kind='todo' THEN 'todo-'||t.source_id ELSE t.source_id END AND m.profile_id=v.id AND ((CASE WHEN c.kind='task' THEN c.assignee ELSE COALESCE(c.person,'all') END) IN (v.id,'all') OR EXISTS (SELECT 1 FROM json_each(c.audience) WHERE value=v.id)))
     OR EXISTS (SELECT 1 FROM todo_items o JOIN planner_members m ON m.group_id='family' WHERE t.source_kind='todo' AND t.source_id=o.id AND m.profile_id=v.id AND o.created_by=v.id)
     OR EXISTS (SELECT 1 FROM entry_guests g JOIN entry_shares s ON s.token=g.token WHERE s.thread_id=t.id AND s.active=1 AND g.profile_id=v.id)
     OR EXISTS (SELECT 1 FROM entry_changes c JOIN planner_members m ON m.group_id=c.group_id WHERE c.thread_id=t.id AND m.profile_id=v.id AND EXISTS (SELECT 1 FROM json_each(c.recipients) WHERE value=v.id))`).bind(profile.id).all<ThreadRow>()

@@ -13,6 +13,7 @@ export type CalendarItem = {
   note?: string
   person?: PersonId | "all"
   assignee?: PersonId
+  audience?: PersonId[]
   completed?: boolean
   revision?: number
   updatedAt?: string
@@ -34,6 +35,7 @@ export type TodoItem = {
   note?: string
   createdBy: PersonId
   createdAt?: string
+  audience?: PersonId[]
 }
 
 export type ShoppingItem = {

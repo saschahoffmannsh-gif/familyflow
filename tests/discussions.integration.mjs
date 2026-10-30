@@ -98,6 +98,21 @@ assert.ok((await call(inbox,'GET','/api/inbox',peer)).items.some(e=>e.entry.titl
 pushModule.notifyPeople=originalNotify
 ;(await sqlite.prepare('DELETE FROM planner_members WHERE group_id=? AND profile_id=?').run('family',peer.id))
 
+// Offene Aufträge für mehrere Personen: nur Angebotene können übernehmen, sie werden benachrichtigt.
+{const calls=[];pushModule.notifyPeople=async(_db,people,payload)=>{calls.push({people,payload})}
+const offerId='offer-two-people';const offered=await call(todos,'PUT','/api/todo',owner,{id:offerId,kind:'task',title:'Garage fegen',createdBy:'sascha',audience:['katharina','arjen']})
+assert.deepEqual(offered.item.audience,['katharina','arjen'])
+assert.deepEqual(calls.at(-1).people.sort(),['arjen','katharina'])
+assert.deepEqual((await call(todos,'GET','/api/todo',owner)).items.find(e=>e.id===offerId).audience,['katharina','arjen'])
+await call(todos,'PUT','/api/todo',owner,{id:'offer-bad',kind:'task',title:'X',createdBy:'sascha',audience:['fremd']},400)
+await call(todos,'POST','/api/todo',owner,{id:offerId,person:'sascha',date:'2027-03-01',completed:false},400)
+const took=await call(todos,'POST','/api/todo',owner,{id:offerId,person:'arjen',date:'2027-03-01',completed:false})
+assert.equal(took.calendarItem.assignee,'arjen')
+const all=await call(todos,'PUT','/api/todo',owner,{id:'offer-all',kind:'task',title:'Alle',createdBy:'sascha',audience:['sascha','katharina','arjen']})
+assert.equal(all.item.audience,undefined,'Alle drei = ganze Familie')
+await call(todos,'DELETE','/api/todo',owner,{id:'offer-all'})
+pushModule.notifyPeople=originalNotify}
+
 const todoId='test-open-task';await call(todos,'PUT','/api/todo',owner,{id:todoId,kind:'task',title:'Kann jemand übernehmen?',createdBy:'sascha'})
 const todoThread=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'todo',id:todoId});await call(chat,'POST','/api/discussions',owner,{action:'message',threadId:todoThread.id,body:'Bitte Foto ansehen.',messageId:crypto.randomUUID()});assert.deepEqual((await call(todos,'GET','/api/todo',owner)).items.find(e=>e.id===todoId).activity,{messages:1,images:0,audio:0});await call(todos,'POST','/api/todo',owner,{id:todoId,person:'sascha',date:'2027-01-05',completed:false});const taken=await call(chat,'POST','/api/discussions',owner,{action:'open',kind:'event',id:`todo-${todoId}`});assert.equal(taken.id,todoThread.id);assert.equal(taken.messages[0].body,'Bitte Foto ansehen.')
 const takenBundle=await call(planner,'GET','/api/planner',owner)

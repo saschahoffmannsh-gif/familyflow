@@ -1,7 +1,8 @@
 import type { WasteKind } from './waste-calendar'
 import type { EntryActivity } from './discussions'
 export type PlannerPerson = { id: string; name: string; color: string }
-export type PlannerGroup = { id: string; name: string; category: string; color: string; inviteCode: string; members: PlannerPerson[] }
+export type PlannerSubgroup = { id: string; name: string; members: string[] }
+export type PlannerGroup = { id: string; name: string; category: string; color: string; inviteCode: string; members: PlannerPerson[]; subgroups?: PlannerSubgroup[] }
 export type PlannerEvent = { id: string; groupId: string; title: string; date: string; endDate?: string; time?: string; note?: string; person: string; eventType: string; revision: number; kind?: 'event' | 'task'; completed?: boolean; wasteKind?: WasteKind; audience?: string[]; readonly?: boolean; sharedThreadId?: string; activity?: EntryActivity }
 export type PlannerData = { profile: PlannerPerson; groups: PlannerGroup[]; events: PlannerEvent[] }
 export type PlannerIdentity = { id: string; key: string }
@@ -54,3 +55,34 @@ export const PLANNER_WASTE_CATEGORIES = {
 export function swipeMonthOffset(dx: number, dy: number, duration: number) {
   return Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.4 && duration >= 0 ? (dx < 0 ? 1 : -1) : 0
 }
+
+// Mehrere Personen pro Eintrag: audience = Liste von Profil-IDs (mind. 2). person bleibt die erste Person
+// (bzw. 'all' für alle Mitglieder), damit ältere Abfragen und Geräte weiter funktionieren.
+export function parseAudience(value: unknown): string[] | undefined {
+  let list: unknown = value
+  if (typeof value === 'string') { try { list = JSON.parse(value) } catch { return undefined } }
+  if (!Array.isArray(list)) return undefined
+  const ids = [...new Set(list.filter((id): id is string => typeof id === 'string' && /^[\w-]{1,100}$/.test(id)))]
+  return ids.length >= 2 ? ids : undefined
+}
+export function normalizeSelection(ids: string[], memberIds: string[], allowAll = true): { person: string; audience?: string[] } | null {
+  const chosen = memberIds.filter(id => ids.includes(id))
+  if (!chosen.length) return null
+  if (chosen.length === 1) return { person: chosen[0] }
+  if (allowAll && memberIds.length > 1 && chosen.length === memberIds.length) return { person: 'all' }
+  return { person: chosen[0], audience: chosen }
+}
+export function selectionOf(event: Pick<PlannerEvent, 'person' | 'audience'>, memberIds: string[]): string[] {
+  if (event.audience?.length) return event.audience.filter(id => memberIds.includes(id))
+  if (event.person === 'all') return [...memberIds]
+  return memberIds.includes(event.person) ? [event.person] : []
+}
+export function selectionLabel(ids: string[], members: PlannerPerson[], subgroups: PlannerSubgroup[] = []): string {
+  if (!ids.length) return 'Niemand'
+  if (members.length > 1 && members.every(m => ids.includes(m.id))) return 'Alle Mitglieder'
+  const exact = subgroups.find(g => g.members.length === ids.length && g.members.every(id => ids.includes(id)))
+  if (exact) return exact.name
+  const names = members.filter(m => ids.includes(m.id)).map(m => m.name)
+  return names.length <= 2 ? names.join(' & ') : `${names.slice(0, 2).join(', ')} +${names.length - 2}`
+}
+export function offeredTo(item: { audience?: string[] }, person: string) { return !item.audience?.length || item.audience.includes(person) }

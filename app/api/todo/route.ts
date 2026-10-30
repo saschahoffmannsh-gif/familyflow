@@ -5,6 +5,7 @@ import { withEntryActivity } from '@/lib/entry-activity'
 import { isCalendarDate } from "@/lib/discussions"
 import { getDb } from "@/db"
 import type { CalendarItem, PersonId, TodoItem } from "@/lib/familyflow-storage"
+import { notifyPeople } from "@/lib/push-server"
 
 export const dynamic = "force-dynamic"
 
@@ -16,6 +17,7 @@ type TodoRow = {
   note: string | null
   created_by: PersonId
   created_at: string
+  audience?: string | null
 }
 
 const PEOPLE = new Set<PersonId>(["sascha", "katharina", "arjen"])
@@ -42,7 +44,17 @@ function fromRow(row: TodoRow): TodoItem {
     ...(row.note ? { note: row.note } : {}),
     createdBy: row.created_by,
     createdAt: row.created_at,
+    ...(todoAudience(row.audience) ? { audience: todoAudience(row.audience) } : {}),
   }
+}
+
+// Offene Aufträge können einzelnen Personen oder Untergruppen angeboten werden (NULL = ganze Familie).
+function todoAudience(value: unknown): PersonId[] | undefined {
+  let list = value
+  if (typeof value === "string") { try { list = JSON.parse(value) } catch { return undefined } }
+  if (!Array.isArray(list)) return undefined
+  const ids = [...new Set(list.filter((id): id is PersonId => typeof id === "string" && PEOPLE.has(id as PersonId)))]
+  return ids.length && ids.length < PEOPLE.size ? ids : undefined
 }
 
 function errorMessage(error: unknown) {
@@ -69,7 +81,9 @@ function parseTodo(value: unknown): TodoItem {
   if (note && note.length > 1000) throw new ValidationError("Die Notiz ist zu lang")
   if (typeof createdBy !== "string" || !PEOPLE.has(createdBy as PersonId)) throw new ValidationError("Die Person ist ungültig")
 
-  return { id, kind, title, ...(date ? { date: date as string } : {}), ...(note ? { note } : {}), createdBy: createdBy as PersonId }
+  if (Array.isArray(input.audience) && input.audience.some((person) => typeof person !== "string" || !PEOPLE.has(person as PersonId))) throw new ValidationError("Die Person ist ungültig")
+  const audience = todoAudience(input.audience)
+  return { id, kind, title, ...(date ? { date: date as string } : {}), ...(note ? { note } : {}), createdBy: createdBy as PersonId, ...(audience ? { audience } : {}) }
 }
 
 export async function GET(request: Request) {
@@ -77,7 +91,7 @@ export async function GET(request: Request) {
   if (denied) return denied
   try {
     const result = await getDb().prepare(`
-      SELECT id, kind, title, date, note, created_by, created_at
+      SELECT id, kind, title, date, note, created_by, created_at, audience
       FROM todo_items
       ORDER BY created_at DESC, title ASC
     `).all<TodoRow>()
@@ -95,15 +109,17 @@ export async function PUT(request: Request) {
   try {
     const item = parseTodo(await request.json())
     await getDb().prepare(`
-      INSERT INTO todo_items (id, kind, title, date, note, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-    `).bind(item.id, item.kind, item.title, item.date ?? null, item.note ?? null, item.createdBy).run()
+      INSERT INTO todo_items (id, kind, title, date, note, created_by, created_at, audience)
+      VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)
+    `).bind(item.id, item.kind, item.title, item.date ?? null, item.note ?? null, item.createdBy, item.audience ? JSON.stringify(item.audience) : null).run()
 
     const saved = await getDb().prepare(`
-      SELECT id, kind, title, date, note, created_by, created_at
+      SELECT id, kind, title, date, note, created_by, created_at, audience
       FROM todo_items WHERE id = ?
     `).bind(item.id).first<TodoRow>()
-    await recordEntryChange({kind:"todo",id:item.id},(await chatIdentity(request))!)
+    const actor = (await chatIdentity(request))!
+    await recordEntryChange({kind:"todo",id:item.id},actor)
+    if (item.audience) await notifyPeople(getDb(), item.audience.filter((person) => person !== actor.id), { title: item.kind === "task" ? "Offener Auftrag für dich" : "Offener Termin für dich", body: `${item.title} · Kannst du übernehmen?`, tag: `todo-${item.id}`, url: "/" }, request.headers.get("x-familyflow-device"))
     return response({ item: saved ? fromRow(saved) : item })
   } catch (error) {
     if (error instanceof ValidationError) return response({ error: error.message }, 400)
@@ -127,10 +143,12 @@ export async function POST(request: Request) {
 
     const db = getDb()
     const row = await db.prepare(`
-      SELECT id, kind, title, date, note, created_by, created_at
+      SELECT id, kind, title, date, note, created_by, created_at, audience
       FROM todo_items WHERE id = ?
     `).bind(id).first<TodoRow>()
     if (!row) return response({ error: "Dieser Eintrag wurde bereits übernommen." }, 409)
+    const offered = todoAudience(row.audience)
+    if (!completed && offered && !offered.includes(person as PersonId)) throw new ValidationError("Dieser Auftrag ist für andere Personen gedacht.")
 
     date = row.date || date
     if (!completed && !isCalendarDate(date)) throw new ValidationError("Bitte wähle einen gültigen Tag")

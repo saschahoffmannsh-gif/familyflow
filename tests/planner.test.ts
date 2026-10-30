@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { belongsTo, coversDay, dayContext, monthDays, type PlannerEvent } from '../lib/planner.ts'
+import { belongsTo, normalizeSelection, offeredTo, selectionLabel, selectionOf, coversDay, dayContext, monthDays, type PlannerEvent } from '../lib/planner.ts'
 const event = (id: string, groupId: string, person: string, date = '2026-12-15', endDate?: string): PlannerEvent => ({ id, groupId, person, date, endDate, title: id, eventType: 'private', revision: 1 })
 test('month shows only selected member plus shared appointments', () => {
  const events = [event('mine', 'family', 'sascha'), event('other', 'family', 'katharina'), event('shared', 'family', 'all')]
@@ -47,4 +47,19 @@ test('month swipes distinguish horizontal movement from vertical scrolling and t
  assert.equal(swipeMonthOffset(20, 5, 100), 0)
  assert.equal(swipeMonthOffset(70, 100, 200), 0)
  assert.equal(swipeMonthOffset(-100, 0, 1500), 1)
+})
+
+test('several people: normalize, label, belongsTo and offers', () => {
+ const ids = ['a', 'b', 'c'], members = ids.map(id => ({ id, name: id.toUpperCase(), color: '#000' }))
+ assert.deepEqual(normalizeSelection(['b'], ids), { person: 'b' })
+ assert.deepEqual(normalizeSelection(['c', 'a'], ids), { person: 'a', audience: ['a', 'c'] })
+ assert.deepEqual(normalizeSelection(ids, ids), { person: 'all' })
+ assert.deepEqual(normalizeSelection(ids, ids, false), { person: 'a', audience: ids })
+ assert.equal(normalizeSelection(['zz'], ids), null)
+ const shared = { ...event('s', 'g', 'a'), audience: ['a', 'c'] }
+ assert.deepEqual(['a', 'b', 'c'].filter(p => belongsTo(shared, p)), ['a', 'c'])
+ assert.deepEqual(selectionOf(shared, ids), ['a', 'c']); assert.deepEqual(selectionOf(event('x', 'g', 'all'), ids), ids)
+ assert.equal(selectionLabel(['a', 'c'], members, [{ id: 's1', name: 'Früh', members: ['c', 'a'] }]), 'Früh')
+ assert.equal(selectionLabel(['a', 'c'], members), 'A & C'); assert.equal(selectionLabel(ids, members), 'Alle Mitglieder')
+ assert.ok(offeredTo({}, 'b')); assert.ok(!offeredTo({ audience: ['a'] }, 'b'))
 })

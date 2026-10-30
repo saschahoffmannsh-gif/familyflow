@@ -143,20 +143,50 @@ async function dueReminders(p) {
   return result;
 }
 
+// lib/planner.ts
+var LEGACY_PEOPLE = [
+  { id: "sascha", name: "Sascha", color: "#467ba6" },
+  { id: "katharina", name: "Katharina", color: "#d9778f" },
+  { id: "arjen", name: "Arjen", color: "#36a78a" }
+];
+var PLANNER_CATEGORIES = [
+  { id: "private", label: "Privat", color: "#22835c", background: "#d9f3e7", ink: "#195f44" },
+  { id: "work", label: "Arbeit", color: "#d44c68", background: "#ffe0e4", ink: "#92263c" },
+  { id: "task", label: "Auftrag", color: "#159f78", background: "#d5f4e9", ink: "#12634c" },
+  { id: "vacation", label: "Urlaub", color: "#d7a300", background: "#ffef9e", ink: "#685100" },
+  { id: "holidays", label: "Ferien / Feiertage", color: "#a96ccf", background: "linear-gradient(100deg, #ffd7e5, #ffe8a9 34%, #d9f3cc 67%, #cfe9ff)", ink: "#384960" },
+  { id: "birthday", label: "Geburtstag", color: "#c34e9c", background: "#f7dff0", ink: "#853266" },
+  { id: "other", label: "Sonstiges", color: "#63849c", background: "#e4edf3", ink: "#3b5c72" }
+];
+function parseAudience(value) {
+  let list = value;
+  if (typeof value === "string") {
+    try {
+      list = JSON.parse(value);
+    } catch {
+      return void 0;
+    }
+  }
+  if (!Array.isArray(list)) return void 0;
+  const ids = [...new Set(list.filter((id) => typeof id === "string" && /^[\w-]{1,100}$/.test(id)))];
+  return ids.length >= 2 ? ids : void 0;
+}
+
 // lib/inbox-server.ts
 async function entrySnapshot(ref) {
   const db = getDb(), source = await sourceFor(ref.kind, ref.id);
-  let person = null;
+  let person = null, audience;
   if (ref.kind === "todo") {
     const todo = await db.prepare("SELECT created_by FROM todo_items WHERE id=?").bind(ref.id).first();
     if (todo) person = todo.created_by;
     else return entrySnapshot({ kind: "event", id: `todo-${ref.id}` });
   } else {
-    const row = await db.prepare("SELECT person FROM planner_events WHERE id=?").bind(ref.id).first() || await db.prepare("SELECT CASE WHEN kind='task' THEN assignee ELSE COALESCE(person,'all') END AS person FROM calendar_items WHERE id=?").bind(ref.id).first();
+    const row = await db.prepare("SELECT person, audience FROM planner_events WHERE id=?").bind(ref.id).first() || await db.prepare("SELECT CASE WHEN kind='task' THEN assignee ELSE COALESCE(person,'all') END AS person, audience FROM calendar_items WHERE id=?").bind(ref.id).first();
     person = row?.person || null;
+    audience = parseAudience(row?.audience);
   }
   const members = await db.prepare("SELECT profile_id FROM planner_members WHERE group_id=?").bind(source.groupId).all();
-  return { ...source, people: members.results.map((m) => m.profile_id).filter((id) => person === "all" || id === person) };
+  return { ...source, people: members.results.map((m) => m.profile_id).filter((id) => audience ? audience.includes(id) : person === "all" || id === person) };
 }
 async function threadFor(ref, actor) {
   const db = getDb();
@@ -187,8 +217,8 @@ async function inboxFor(profile) {
   const db = getDb();
   const candidates = await db.prepare(`WITH viewer AS (SELECT ? AS id)
     SELECT t.id,t.source_kind,t.source_id FROM entry_threads t CROSS JOIN viewer v WHERE
-    EXISTS (SELECT 1 FROM planner_events e JOIN planner_members m ON m.group_id=e.group_id WHERE t.source_kind='event' AND t.source_id=e.id AND m.profile_id=v.id AND e.waste_kind IS NULL AND e.person IN (v.id,'all'))
-    OR EXISTS (SELECT 1 FROM calendar_items c JOIN planner_members m ON m.group_id='family' WHERE c.id=CASE WHEN t.source_kind='todo' THEN 'todo-'||t.source_id ELSE t.source_id END AND m.profile_id=v.id AND (CASE WHEN c.kind='task' THEN c.assignee ELSE COALESCE(c.person,'all') END) IN (v.id,'all'))
+    EXISTS (SELECT 1 FROM planner_events e JOIN planner_members m ON m.group_id=e.group_id WHERE t.source_kind='event' AND t.source_id=e.id AND m.profile_id=v.id AND e.waste_kind IS NULL AND (e.person IN (v.id,'all') OR EXISTS (SELECT 1 FROM json_each(e.audience) WHERE value=v.id)))
+    OR EXISTS (SELECT 1 FROM calendar_items c JOIN planner_members m ON m.group_id='family' WHERE c.id=CASE WHEN t.source_kind='todo' THEN 'todo-'||t.source_id ELSE t.source_id END AND m.profile_id=v.id AND ((CASE WHEN c.kind='task' THEN c.assignee ELSE COALESCE(c.person,'all') END) IN (v.id,'all') OR EXISTS (SELECT 1 FROM json_each(c.audience) WHERE value=v.id)))
     OR EXISTS (SELECT 1 FROM todo_items o JOIN planner_members m ON m.group_id='family' WHERE t.source_kind='todo' AND t.source_id=o.id AND m.profile_id=v.id AND o.created_by=v.id)
     OR EXISTS (SELECT 1 FROM entry_guests g JOIN entry_shares s ON s.token=g.token WHERE s.thread_id=t.id AND s.active=1 AND g.profile_id=v.id)
     OR EXISTS (SELECT 1 FROM entry_changes c JOIN planner_members m ON m.group_id=c.group_id WHERE c.thread_id=t.id AND m.profile_id=v.id AND EXISTS (SELECT 1 FROM json_each(c.recipients) WHERE value=v.id))`).bind(profile.id).all();
@@ -631,18 +661,21 @@ function fromRow(row) {
     ...row.time ? { time: row.time } : {},
     ...row.note ? { note: row.note } : {},
     ...row.kind === "event" ? { ...!UNASSIGNED_EVENT_TYPES.has(eventType) ? { person: row.person ?? "all" } : {}, eventType } : { assignee: row.assignee ?? "sascha", completed: row.completed === 1 },
+    ...parseAudience(row.audience) ? { audience: parseAudience(row.audience) } : {},
     revision: row.revision,
     updatedAt: row.updated_at
   };
 }
 function recipients(item) {
+  if (item.audience?.length) return item.audience;
   if (item.kind === "task") return item.assignee ? [item.assignee] : [];
   if (UNASSIGNED_EVENT_TYPES.has(item.eventType ?? "private")) return [];
   if (item.person === "all") return ["sascha", "katharina", "arjen"];
   return item.person ? [item.person] : [];
 }
 function assignmentKey(value) {
-  return value.kind === "task" ? value.assignee : value.person;
+  const audience = "audience" in value && value.audience ? Array.isArray(value.audience) ? value.audience : parseAudience(value.audience) : void 0;
+  return audience?.length ? audience.join(",") : value.kind === "task" ? value.assignee : value.person;
 }
 function notificationFor(item) {
   const formatter = new Intl.DateTimeFormat("de-DE", {
@@ -655,7 +688,7 @@ function notificationFor(item) {
   const range = item.endDate ? `${start} bis ${formatter.format(/* @__PURE__ */ new Date(`${item.endDate}T12:00:00Z`))}` : start;
   const when = item.time ? `${range} um ${item.time} Uhr` : range;
   return {
-    title: item.kind === "task" ? "Neuer Auftrag f\xFCr dich" : item.person === "all" ? "Neuer Familientermin" : "Neuer Termin f\xFCr dich",
+    title: item.kind === "task" ? item.audience ? "Neuer Auftrag f\xFCr euch" : "Neuer Auftrag f\xFCr dich" : item.audience ? "Neuer Termin f\xFCr euch" : item.person === "all" ? "Neuer Familientermin" : "Neuer Termin f\xFCr dich",
     body: `${item.title} \xB7 ${when}`,
     tag: `new-${item.id}`,
     url: "/"
@@ -673,6 +706,8 @@ function parseItem(value, allowedPeople = PEOPLE) {
   const time = typeof input.time === "string" && input.time ? input.time : void 0;
   const note = typeof input.note === "string" && input.note.trim() ? input.note.trim() : void 0;
   const revision = typeof input.revision === "number" && Number.isInteger(input.revision) && input.revision > 0 ? input.revision : void 0;
+  const audience = parseAudience(input.audience);
+  if (audience?.some((person) => !allowedPeople.has(person))) throw new ValidationError("Die Person ist ung\xFCltig");
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new ValidationError("Ung\xFCltige ID");
   if (kind !== "event" && kind !== "task") throw new ValidationError("Ung\xFCltige Art");
   if (!title || title.length > 120) throw new ValidationError("Der Titel ist ung\xFCltig");
@@ -683,7 +718,7 @@ function parseItem(value, allowedPeople = PEOPLE) {
   if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new ValidationError("Die Uhrzeit ist ung\xFCltig");
   if (note && note.length > 1e3) throw new ValidationError("Die Notiz ist zu lang");
   if (kind === "event") {
-    const person = input.person;
+    const person = audience ? audience[0] : input.person;
     if (!EVENT_TYPES.has(eventType)) throw new ValidationError("Die Terminart ist ung\xFCltig");
     if (UNASSIGNED_EVENT_TYPES.has(eventType)) {
       return { id, kind, title, date, ...endDate && endDate !== date ? { endDate } : {}, eventType, ...time ? { time } : {}, ...note ? { note } : {}, ...revision ? { revision } : {} };
@@ -691,9 +726,9 @@ function parseItem(value, allowedPeople = PEOPLE) {
     if (person !== "all" && (typeof person !== "string" || !allowedPeople.has(person))) {
       throw new ValidationError("Die Person ist ung\xFCltig");
     }
-    return { id, kind, title, date, ...endDate && endDate !== date ? { endDate } : {}, eventType, ...time ? { time } : {}, ...note ? { note } : {}, person, ...revision ? { revision } : {} };
+    return { id, kind, title, date, ...endDate && endDate !== date ? { endDate } : {}, eventType, ...time ? { time } : {}, ...note ? { note } : {}, person, ...audience ? { audience } : {}, ...revision ? { revision } : {} };
   }
-  const assignee = input.assignee;
+  const assignee = audience ? audience[0] : input.assignee;
   if (typeof assignee !== "string" || !allowedPeople.has(assignee)) throw new ValidationError("Die Zust\xE4ndigkeit ist ung\xFCltig");
   return {
     id,
@@ -704,6 +739,7 @@ function parseItem(value, allowedPeople = PEOPLE) {
     ...time ? { time } : {},
     ...note ? { note } : {},
     assignee,
+    ...audience ? { audience } : {},
     completed: input.completed === true,
     ...revision ? { revision } : {}
   };
@@ -713,7 +749,7 @@ async function GET(request) {
   if (denied) return denied;
   try {
     const result = await getDb().prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items
       ORDER BY date ASC, COALESCE(time, '99:99') ASC, title ASC
     `).all();
@@ -734,7 +770,7 @@ async function PUT(request) {
     const familyMembers = await db.prepare("SELECT profile_id FROM planner_members WHERE group_id = 'family'").all();
     const item = parseItem(await request.json(), /* @__PURE__ */ new Set([...PEOPLE, ...familyMembers.results.map((member) => member.profile_id)]));
     const previous = await db.prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items
       WHERE id = ?
     `).bind(item.id).first();
@@ -744,8 +780,8 @@ async function PUT(request) {
     const previousSnapshot = previous ? await entrySnapshot({ kind: "event", id: item.id }) : void 0;
     const nextRevision = previous ? previous.revision + 1 : 1;
     const write = await db.prepare(`
-      INSERT INTO calendar_items (id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      INSERT INTO calendar_items (id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         title = excluded.title,
@@ -756,6 +792,7 @@ async function PUT(request) {
         note = excluded.note,
         person = excluded.person,
         assignee = excluded.assignee,
+        audience = excluded.audience,
         completed = excluded.completed,
         revision = excluded.revision,
         updated_at = excluded.updated_at
@@ -771,12 +808,13 @@ async function PUT(request) {
       item.note ?? null,
       item.kind === "event" ? item.person ?? null : null,
       item.kind === "task" ? item.assignee ?? null : null,
+      item.audience?.length ? JSON.stringify(item.audience) : null,
       item.completed ? 1 : 0,
       nextRevision
     ).run();
     if (write.meta.changes === 0) {
       const current = await db.prepare(`
-        SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+        SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
         FROM calendar_items
         WHERE id = ?
       `).bind(item.id).first();
@@ -789,7 +827,7 @@ async function PUT(request) {
     }
     if (request.headers.get("prefer")?.includes("return=minimal")) return response({ saved: true });
     const saved = await db.prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items
       WHERE id = ?
     `).bind(item.id).first();
@@ -816,7 +854,7 @@ async function DELETE(request) {
     }
     const db = getDb();
     const current = await db.prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items WHERE id = ?
     `).bind(payload.id).first();
     if (!current) return response({ deleted: true });
@@ -1222,22 +1260,6 @@ function isValidProfileChangeCode(value) {
   );
 }
 
-// lib/planner.ts
-var LEGACY_PEOPLE = [
-  { id: "sascha", name: "Sascha", color: "#467ba6" },
-  { id: "katharina", name: "Katharina", color: "#d9778f" },
-  { id: "arjen", name: "Arjen", color: "#36a78a" }
-];
-var PLANNER_CATEGORIES = [
-  { id: "private", label: "Privat", color: "#22835c", background: "#d9f3e7", ink: "#195f44" },
-  { id: "work", label: "Arbeit", color: "#d44c68", background: "#ffe0e4", ink: "#92263c" },
-  { id: "task", label: "Auftrag", color: "#159f78", background: "#d5f4e9", ink: "#12634c" },
-  { id: "vacation", label: "Urlaub", color: "#d7a300", background: "#ffef9e", ink: "#685100" },
-  { id: "holidays", label: "Ferien / Feiertage", color: "#a96ccf", background: "linear-gradient(100deg, #ffd7e5, #ffe8a9 34%, #d9f3cc 67%, #cfe9ff)", ink: "#384960" },
-  { id: "birthday", label: "Geburtstag", color: "#c34e9c", background: "#f7dff0", ink: "#853266" },
-  { id: "other", label: "Sonstiges", color: "#63849c", background: "#e4edf3", ink: "#3b5c72" }
-];
-
 // app/api/planner/route.ts
 var dynamic6 = "force-dynamic";
 var PARENTS = ["sascha", "katharina"];
@@ -1269,14 +1291,21 @@ async function membership(groupId, profileId) {
   if (!await getDb().prepare("SELECT group_id FROM planner_members WHERE group_id = ? AND profile_id = ?").bind(groupId, profileId).first()) throw new ApiError("Diese Gruppe geh\xF6rt nicht zu deinem Profil.", 403);
 }
 function eventFrom(row) {
-  return { kind: row.event_type === "task" ? "task" : "event", id: row.id, groupId: row.group_id, title: row.title, date: row.date, person: row.person, eventType: row.event_type, revision: row.revision, completed: !!row.completed, ...row.waste_kind ? { wasteKind: row.waste_kind, ...row.group_id === "family" && row.person === "parents" ? { audience: PARENTS } : {} } : {}, ...row.end_date ? { endDate: row.end_date } : {}, ...row.time ? { time: row.time } : {}, ...row.note ? { note: row.note } : {} };
+  return { kind: row.event_type === "task" ? "task" : "event", id: row.id, groupId: row.group_id, title: row.title, date: row.date, person: row.person, eventType: row.event_type, revision: row.revision, completed: !!row.completed, ...row.waste_kind ? { wasteKind: row.waste_kind, ...row.group_id === "family" && row.person === "parents" ? { audience: PARENTS } : {} } : {}, ...!row.waste_kind && parseAudience(row.audience) ? { audience: parseAudience(row.audience) } : {}, ...row.end_date ? { endDate: row.end_date } : {}, ...row.time ? { time: row.time } : {}, ...row.note ? { note: row.note } : {} };
 }
 async function bundle(profile) {
   const db = getDb();
   const result = await db.prepare("SELECT g.* FROM planner_groups g JOIN planner_members m ON m.group_id = g.id WHERE m.profile_id = ? ORDER BY CASE WHEN g.id = 'family' THEN 0 ELSE 1 END, g.name").bind(profile.id).all();
   const groups = await Promise.all(result.results.map(async (group) => {
     const members = await db.prepare("SELECT p.id, p.name, p.color FROM planner_profiles p JOIN planner_members m ON m.profile_id = p.id WHERE m.group_id = ? ORDER BY p.name").bind(group.id).all();
-    return { id: group.id, name: group.name, category: group.category, color: group.color, inviteCode: group.invite_code, members: members.results };
+    const subs = await db.prepare("SELECT s.id, s.name, sm.profile_id FROM planner_subgroups s LEFT JOIN planner_subgroup_members sm ON sm.subgroup_id = s.id LEFT JOIN planner_members m ON m.group_id = s.group_id AND m.profile_id = sm.profile_id WHERE s.group_id = ? AND (sm.profile_id IS NULL OR m.profile_id IS NOT NULL) ORDER BY s.name, s.id").bind(group.id).all();
+    const subgroups = [];
+    for (const row of subs.results) {
+      let sub = subgroups.find((s) => s.id === row.id);
+      if (!sub) subgroups.push(sub = { id: row.id, name: row.name, members: [] });
+      if (row.profile_id) sub.members.push(row.profile_id);
+    }
+    return { id: group.id, name: group.name, category: group.category, color: group.color, inviteCode: group.invite_code, members: members.results, subgroups };
   }));
   const rows = await db.prepare("SELECT e.* FROM planner_events e JOIN planner_members m ON m.group_id = e.group_id WHERE m.profile_id = ? ORDER BY e.date, e.time").bind(profile.id).all();
   const events = rows.results.filter((row) => !row.waste_kind || row.group_id !== "family" || PARENTS.includes(profile.id)).map(eventFrom);
@@ -1405,6 +1434,30 @@ async function POST4(request) {
       ]);
       return reply({ ...await bundle(profile), selectedGroupId: id });
     }
+    if (input.action === "subgroup-save" || input.action === "subgroup-delete") {
+      const groupId = text(input.groupId, 100);
+      await membership(groupId, profile.id);
+      const id = text(input.id, 100);
+      if (id && !/^[\w-]+$/.test(id)) throw new ApiError("Ung\xFCltige Untergruppe.");
+      const existing = id ? await db.prepare("SELECT id FROM planner_subgroups WHERE id = ? AND group_id = ?").bind(id, groupId).first() : null;
+      if (id && !existing && input.action === "subgroup-delete") return reply(await bundle(profile));
+      if (input.action === "subgroup-delete") {
+        await db.batch([db.prepare("DELETE FROM planner_subgroup_members WHERE subgroup_id = ?").bind(id), db.prepare("DELETE FROM planner_subgroups WHERE id = ? AND group_id = ?").bind(id, groupId)]);
+        return reply(await bundle(profile));
+      }
+      const name = text(input.name, 50);
+      if (!name) throw new ApiError("Bitte gib einen Namen ein.");
+      const members = Array.isArray(input.members) ? [...new Set(input.members.filter((m) => typeof m === "string"))].slice(0, 200) : [];
+      for (const member of members) await membership(groupId, member);
+      if (id && !existing) throw new ApiError("Diese Untergruppe gibt es nicht mehr.", 404);
+      const subId = existing?.id || uid();
+      await db.batch([
+        existing ? db.prepare("UPDATE planner_subgroups SET name = ? WHERE id = ?").bind(name, subId) : db.prepare("INSERT INTO planner_subgroups (id, group_id, name, created_by) VALUES (?, ?, ?, ?)").bind(subId, groupId, name, profile.id),
+        db.prepare("DELETE FROM planner_subgroup_members WHERE subgroup_id = ?").bind(subId),
+        ...members.map((member) => db.prepare("INSERT INTO planner_subgroup_members (subgroup_id, profile_id) VALUES (?, ?)").bind(subId, member))
+      ]);
+      return reply({ ...await bundle(profile), subgroupId: subId });
+    }
     if (input.action === "join") {
       const code = text(input.code, 30).toUpperCase().replace(/[\s-]/g, "");
       if (!/^[A-F0-9]{12}$/.test(code)) throw new ApiError("Bitte gib den zw\xF6lfstelligen Einladungscode ein.");
@@ -1428,7 +1481,11 @@ async function PUT2(request) {
     const input = await request.json();
     const groupId = text(input.groupId, 100);
     await membership(groupId, profile.id);
-    const title = text(input.title, 120), date = text(input.date, 10), endDate = text(input.endDate, 10), time = text(input.time, 5), note = text(input.note, 1e3), person = text(input.person, 100);
+    const title = text(input.title, 120), date = text(input.date, 10), endDate = text(input.endDate, 10), time = text(input.time, 5), note = text(input.note, 1e3);
+    const audience = parseAudience(input.audience) || null;
+    if (Array.isArray(input.audience) && input.audience.length > 200) throw new ApiError("Zu viele Personen.");
+    const person = audience ? audience[0] : text(input.person, 100);
+    if (audience) for (const member of audience) await membership(groupId, member);
     const eventType = input.kind === "task" ? "task" : text(input.eventType, 20) || "private";
     if (!PLANNER_CATEGORIES.some((category) => category.id === eventType)) throw new ApiError("Die Art des Eintrags ist ung\xFCltig.");
     if (!title || !validDay(date) || endDate && (!validDay(endDate) || endDate < date)) throw new ApiError("Bitte pr\xFCfe Titel und Zeitraum.");
@@ -1438,12 +1495,13 @@ async function PUT2(request) {
     if (!/^[\w-]+$/.test(id)) throw new ApiError("Ung\xFCltiger Eintrag.");
     if (WASTE_PICKUPS.some((pickup) => pickup.id === id)) throw new ApiError("Diese M\xFCllabholung kann als rausgestellt best\xE4tigt werden.");
     const imported = await getDb().prepare("SELECT * FROM planner_events WHERE id = ?").bind(id).first();
+    if (audience && imported?.waste_kind) throw new ApiError("Ung\xFCltiger Kalender.");
     if (person === "parents" && (!imported?.waste_kind || groupId !== "family" || !PARENTS.includes(profile.id))) throw new ApiError("Ung\xFCltiger Kalender.", 403);
     if (imported?.waste_kind && groupId === "family" && !PARENTS.includes(profile.id)) throw new ApiError("Die M\xFClltermine sind f\xFCr Sascha und Katharina.", 403);
     if (groupId === "family" && !imported) {
       const headers = new Headers(request.headers);
       headers.set("x-familyflow-actor", profile.id);
-      const result = await PUT(new Request(request.url, { method: "PUT", headers, body: JSON.stringify({ id, kind: input.kind === "task" ? "task" : "event", title, date, endDate, time, note, person, assignee: person, completed: input.completed, eventType: input.eventType || "private", revision: input.revision }) }));
+      const result = await PUT(new Request(request.url, { method: "PUT", headers, body: JSON.stringify({ id, kind: input.kind === "task" ? "task" : "event", title, date, endDate, time, note, person, assignee: person, ...audience ? { audience } : {}, completed: input.completed, eventType: input.eventType || "private", revision: input.revision }) }));
       if (!result.ok) return result;
       return reply(request.headers.get("prefer")?.includes("return=minimal") ? { saved: true } : await bundle(profile));
     }
@@ -1452,7 +1510,7 @@ async function PUT2(request) {
     if (old && old.group_id !== groupId) throw new ApiError("Dieser Eintrag geh\xF6rt zu einer anderen Gruppe.", 403);
     if (old && old.revision !== input.revision) throw new ApiError("Dieser Termin wurde inzwischen ge\xE4ndert. Bitte neu laden.", 409);
     const previous = old && !imported?.waste_kind ? await entrySnapshot({ kind: "event", id }) : void 0;
-    const write = await db.prepare(`INSERT INTO planner_events (id, group_id, title, date, end_date, time, note, person, event_type, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, date=excluded.date, end_date=excluded.end_date, time=excluded.time, note=excluded.note, person=excluded.person, event_type=excluded.event_type, revision=excluded.revision WHERE planner_events.revision=excluded.revision-1 AND planner_events.group_id=excluded.group_id`).bind(id, groupId, title, date, endDate || null, time || null, note || null, person, eventType, old ? old.revision + 1 : 1).run();
+    const write = await db.prepare(`INSERT INTO planner_events (id, group_id, title, date, end_date, time, note, person, event_type, revision, audience) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, date=excluded.date, end_date=excluded.end_date, time=excluded.time, note=excluded.note, person=excluded.person, event_type=excluded.event_type, audience=excluded.audience, revision=excluded.revision WHERE planner_events.revision=excluded.revision-1 AND planner_events.group_id=excluded.group_id`).bind(id, groupId, title, date, endDate || null, time || null, note || null, person, eventType, old ? old.revision + 1 : 1, audience ? JSON.stringify(audience) : null).run();
     if (!write.meta.changes) throw new ApiError("Der Termin wurde inzwischen ge\xE4ndert. Bitte neu laden.", 409);
     if (!imported?.waste_kind) await recordEntryChange({ kind: "event", id }, profile, previous);
     return reply(request.headers.get("prefer")?.includes("return=minimal") ? { saved: true } : await bundle(profile));
@@ -1548,11 +1606,11 @@ async function sendDailySummary(db, subscription) {
   if (subscription.last_daily_sent === date) return { sent: false, reason: "already-sent" };
   const counts = await db.prepare(`
     SELECT
-      SUM(CASE WHEN kind = 'event' AND (person = ? OR person = 'all') THEN 1 ELSE 0 END) AS events,
-      SUM(CASE WHEN kind = 'task' AND assignee = ? AND completed = 0 THEN 1 ELSE 0 END) AS tasks
+      SUM(CASE WHEN kind = 'event' AND (person = ? OR person = 'all' OR audience LIKE ?) THEN 1 ELSE 0 END) AS events,
+      SUM(CASE WHEN kind = 'task' AND (assignee = ? OR audience LIKE ?) AND completed = 0 THEN 1 ELSE 0 END) AS tasks
     FROM calendar_items
     WHERE date <= ? AND COALESCE(end_date, date) >= ?
-  `).bind(subscription.person, subscription.person, date, date).first();
+  `).bind(subscription.person, `%"${subscription.person}"%`, subscription.person, `%"${subscription.person}"%`, date, date).first();
   const events = Number(counts?.events ?? 0);
   const tasks = Number(counts?.tasks ?? 0);
   const completedWaste = await db.prepare(`
@@ -1825,8 +1883,22 @@ function fromRow3(row) {
     ...row.date ? { date: row.date } : {},
     ...row.note ? { note: row.note } : {},
     createdBy: row.created_by,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    ...todoAudience(row.audience) ? { audience: todoAudience(row.audience) } : {}
   };
+}
+function todoAudience(value) {
+  let list = value;
+  if (typeof value === "string") {
+    try {
+      list = JSON.parse(value);
+    } catch {
+      return void 0;
+    }
+  }
+  if (!Array.isArray(list)) return void 0;
+  const ids = [...new Set(list.filter((id) => typeof id === "string" && PEOPLE4.has(id)))];
+  return ids.length && ids.length < PEOPLE4.size ? ids : void 0;
 }
 function errorMessage3(error) {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -1847,14 +1919,16 @@ function parseTodo(value) {
   if (!title || title.length > 120) throw new ValidationError3("Der Titel ist ung\xFCltig");
   if (note && note.length > 1e3) throw new ValidationError3("Die Notiz ist zu lang");
   if (typeof createdBy !== "string" || !PEOPLE4.has(createdBy)) throw new ValidationError3("Die Person ist ung\xFCltig");
-  return { id, kind, title, ...date ? { date } : {}, ...note ? { note } : {}, createdBy };
+  if (Array.isArray(input.audience) && input.audience.some((person) => typeof person !== "string" || !PEOPLE4.has(person))) throw new ValidationError3("Die Person ist ung\xFCltig");
+  const audience = todoAudience(input.audience);
+  return { id, kind, title, ...date ? { date } : {}, ...note ? { note } : {}, createdBy, ...audience ? { audience } : {} };
 }
 async function GET8(request) {
   const denied = await familyApiAccess(request);
   if (denied) return denied;
   try {
     const result = await getDb().prepare(`
-      SELECT id, kind, title, date, note, created_by, created_at
+      SELECT id, kind, title, date, note, created_by, created_at, audience
       FROM todo_items
       ORDER BY created_at DESC, title ASC
     `).all();
@@ -1871,14 +1945,16 @@ async function PUT4(request) {
   try {
     const item = parseTodo(await request.json());
     await getDb().prepare(`
-      INSERT INTO todo_items (id, kind, title, date, note, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-    `).bind(item.id, item.kind, item.title, item.date ?? null, item.note ?? null, item.createdBy).run();
+      INSERT INTO todo_items (id, kind, title, date, note, created_by, created_at, audience)
+      VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)
+    `).bind(item.id, item.kind, item.title, item.date ?? null, item.note ?? null, item.createdBy, item.audience ? JSON.stringify(item.audience) : null).run();
     const saved = await getDb().prepare(`
-      SELECT id, kind, title, date, note, created_by, created_at
+      SELECT id, kind, title, date, note, created_by, created_at, audience
       FROM todo_items WHERE id = ?
     `).bind(item.id).first();
-    await recordEntryChange({ kind: "todo", id: item.id }, await chatIdentity(request));
+    const actor = await chatIdentity(request);
+    await recordEntryChange({ kind: "todo", id: item.id }, actor);
+    if (item.audience) await notifyPeople(getDb(), item.audience.filter((person) => person !== actor.id), { title: item.kind === "task" ? "Offener Auftrag f\xFCr dich" : "Offener Termin f\xFCr dich", body: `${item.title} \xB7 Kannst du \xFCbernehmen?`, tag: `todo-${item.id}`, url: "/" }, request.headers.get("x-familyflow-device"));
     return response5({ item: saved ? fromRow3(saved) : item });
   } catch (error) {
     if (error instanceof ValidationError3) return response5({ error: error.message }, 400);
@@ -1900,10 +1976,12 @@ async function POST8(request) {
     if (typeof person !== "string" || !PEOPLE4.has(person)) throw new ValidationError3("Die Person ist ung\xFCltig");
     const db = getDb();
     const row = await db.prepare(`
-      SELECT id, kind, title, date, note, created_by, created_at
+      SELECT id, kind, title, date, note, created_by, created_at, audience
       FROM todo_items WHERE id = ?
     `).bind(id).first();
     if (!row) return response5({ error: "Dieser Eintrag wurde bereits \xFCbernommen." }, 409);
+    const offered = todoAudience(row.audience);
+    if (!completed && offered && !offered.includes(person)) throw new ValidationError3("Dieser Auftrag ist f\xFCr andere Personen gedacht.");
     date = row.date || date;
     if (!completed && !isCalendarDate(date)) throw new ValidationError3("Bitte w\xE4hle einen g\xFCltigen Tag");
     const inboxProfile = await chatIdentity(request);

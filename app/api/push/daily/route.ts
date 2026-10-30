@@ -34,11 +34,11 @@ async function sendDailySummary(db: D1Database, subscription: DailySubscription)
 
   const counts = await db.prepare(`
     SELECT
-      SUM(CASE WHEN kind = 'event' AND (person = ? OR person = 'all') THEN 1 ELSE 0 END) AS events,
-      SUM(CASE WHEN kind = 'task' AND assignee = ? AND completed = 0 THEN 1 ELSE 0 END) AS tasks
+      SUM(CASE WHEN kind = 'event' AND (person = ? OR person = 'all' OR audience LIKE ?) THEN 1 ELSE 0 END) AS events,
+      SUM(CASE WHEN kind = 'task' AND (assignee = ? OR audience LIKE ?) AND completed = 0 THEN 1 ELSE 0 END) AS tasks
     FROM calendar_items
     WHERE date <= ? AND COALESCE(end_date, date) >= ?
-  `).bind(subscription.person, subscription.person, date, date).first<{ events: number | null; tasks: number | null }>()
+  `).bind(subscription.person, `%"${subscription.person}"%`, subscription.person, `%"${subscription.person}"%`, date, date).first<{ events: number | null; tasks: number | null }>()
   const events = Number(counts?.events ?? 0)
   const tasks = Number(counts?.tasks ?? 0)
   const completedWaste = await db.prepare(`

@@ -4,12 +4,12 @@ import { withEntryActivity } from '@/lib/entry-activity'
 import { getDb } from '@/db'
 import { WASTE_PICKUPS, WASTE_CALENDAR_SOURCE, type WasteKind } from '@/lib/waste-calendar'
 import { isValidProfileChangeCode } from '@/lib/family-access'
-import { PLANNER_CATEGORIES, LEGACY_PEOPLE, type PlannerData, type PlannerEvent, type PlannerGroup, type PlannerPerson } from '@/lib/planner'
+import { PLANNER_CATEGORIES, LEGACY_PEOPLE, parseAudience, type PlannerData, type PlannerEvent, type PlannerGroup, type PlannerPerson } from '@/lib/planner'
 import { PUT as saveFamilyEvent, DELETE as deleteFamilyEvent } from '@/app/api/calendar/route'
 
 export const dynamic = 'force-dynamic'
 type GroupRow = { id: string; name: string; category: string; color: string; invite_code: string }
-type EventRow = { id: string; group_id: string; title: string; date: string; end_date: string | null; time: string | null; note: string | null; person: string; event_type: string; revision: number; waste_kind?: WasteKind | null; completed?: number }
+type EventRow = { id: string; group_id: string; title: string; date: string; end_date: string | null; time: string | null; note: string | null; person: string; event_type: string; revision: number; waste_kind?: WasteKind | null; completed?: number; audience?: string | null }
 const PARENTS = ['sascha', 'katharina']
 const WASTE_KINDS = new Set(['rest', 'bio', 'yellow', 'paper'])
 const reply = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
@@ -29,14 +29,17 @@ async function membership(groupId: string, profileId: string) {
   if (!await getDb().prepare('SELECT group_id FROM planner_members WHERE group_id = ? AND profile_id = ?').bind(groupId, profileId).first()) throw new ApiError('Diese Gruppe gehört nicht zu deinem Profil.', 403)
 }
 function eventFrom(row: EventRow): PlannerEvent {
-  return { kind: row.event_type === 'task' ? 'task' : 'event', id: row.id, groupId: row.group_id, title: row.title, date: row.date, person: row.person, eventType: row.event_type, revision: row.revision, completed: !!row.completed, ...(row.waste_kind ? { wasteKind: row.waste_kind, ...(row.group_id === 'family' && row.person === 'parents' ? { audience: PARENTS } : {}) } : {}), ...(row.end_date ? { endDate: row.end_date } : {}), ...(row.time ? { time: row.time } : {}), ...(row.note ? { note: row.note } : {}) }
+  return { kind: row.event_type === 'task' ? 'task' : 'event', id: row.id, groupId: row.group_id, title: row.title, date: row.date, person: row.person, eventType: row.event_type, revision: row.revision, completed: !!row.completed, ...(row.waste_kind ? { wasteKind: row.waste_kind, ...(row.group_id === 'family' && row.person === 'parents' ? { audience: PARENTS } : {}) } : {}), ...(!row.waste_kind && parseAudience(row.audience) ? { audience: parseAudience(row.audience) } : {}), ...(row.end_date ? { endDate: row.end_date } : {}), ...(row.time ? { time: row.time } : {}), ...(row.note ? { note: row.note } : {}) }
 }
 async function bundle(profile: PlannerPerson): Promise<PlannerData> {
   const db = getDb()
   const result = await db.prepare('SELECT g.* FROM planner_groups g JOIN planner_members m ON m.group_id = g.id WHERE m.profile_id = ? ORDER BY CASE WHEN g.id = \'family\' THEN 0 ELSE 1 END, g.name').bind(profile.id).all<GroupRow>()
   const groups: PlannerGroup[] = await Promise.all(result.results.map(async group => {
     const members = await db.prepare('SELECT p.id, p.name, p.color FROM planner_profiles p JOIN planner_members m ON m.profile_id = p.id WHERE m.group_id = ? ORDER BY p.name').bind(group.id).all<PlannerPerson>()
-    return { id: group.id, name: group.name, category: group.category, color: group.color, inviteCode: group.invite_code, members: members.results }
+    const subs = await db.prepare('SELECT s.id, s.name, sm.profile_id FROM planner_subgroups s LEFT JOIN planner_subgroup_members sm ON sm.subgroup_id = s.id LEFT JOIN planner_members m ON m.group_id = s.group_id AND m.profile_id = sm.profile_id WHERE s.group_id = ? AND (sm.profile_id IS NULL OR m.profile_id IS NOT NULL) ORDER BY s.name, s.id').bind(group.id).all<{ id: string; name: string; profile_id: string | null }>()
+    const subgroups: NonNullable<PlannerGroup['subgroups']> = []
+    for (const row of subs.results) { let sub = subgroups.find(s => s.id === row.id); if (!sub) subgroups.push(sub = { id: row.id, name: row.name, members: [] }); if (row.profile_id) sub.members.push(row.profile_id) }
+    return { id: group.id, name: group.name, category: group.category, color: group.color, inviteCode: group.invite_code, members: members.results, subgroups }
   }))
   const rows = await db.prepare('SELECT e.* FROM planner_events e JOIN planner_members m ON m.group_id = e.group_id WHERE m.profile_id = ? ORDER BY e.date, e.time').bind(profile.id).all<EventRow>()
   const events = rows.results.filter(row => !row.waste_kind || row.group_id !== 'family' || PARENTS.includes(profile.id)).map(eventFrom)
@@ -149,6 +152,30 @@ export async function POST(request: Request) {
       ])
       return reply({ ...await bundle(profile), selectedGroupId: id })
     }
+    if (input.action === 'subgroup-save' || input.action === 'subgroup-delete') {
+      const groupId = text(input.groupId, 100)
+      await membership(groupId, profile.id)
+      const id = text(input.id, 100)
+      if (id && !/^[\w-]+$/.test(id)) throw new ApiError('Ungültige Untergruppe.')
+      const existing = id ? await db.prepare('SELECT id FROM planner_subgroups WHERE id = ? AND group_id = ?').bind(id, groupId).first<{ id: string }>() : null
+      if (id && !existing && input.action === 'subgroup-delete') return reply(await bundle(profile))
+      if (input.action === 'subgroup-delete') {
+        await db.batch([db.prepare('DELETE FROM planner_subgroup_members WHERE subgroup_id = ?').bind(id), db.prepare('DELETE FROM planner_subgroups WHERE id = ? AND group_id = ?').bind(id, groupId)])
+        return reply(await bundle(profile))
+      }
+      const name = text(input.name, 50)
+      if (!name) throw new ApiError('Bitte gib einen Namen ein.')
+      const members = Array.isArray(input.members) ? [...new Set(input.members.filter((m): m is string => typeof m === 'string'))].slice(0, 200) : []
+      for (const member of members) await membership(groupId, member)
+      if (id && !existing) throw new ApiError('Diese Untergruppe gibt es nicht mehr.', 404)
+      const subId = existing?.id || uid()
+      await db.batch([
+        existing ? db.prepare('UPDATE planner_subgroups SET name = ? WHERE id = ?').bind(name, subId) : db.prepare('INSERT INTO planner_subgroups (id, group_id, name, created_by) VALUES (?, ?, ?, ?)').bind(subId, groupId, name, profile.id),
+        db.prepare('DELETE FROM planner_subgroup_members WHERE subgroup_id = ?').bind(subId),
+        ...members.map(member => db.prepare('INSERT INTO planner_subgroup_members (subgroup_id, profile_id) VALUES (?, ?)').bind(subId, member)),
+      ])
+      return reply({ ...await bundle(profile), subgroupId: subId })
+    }
     if (input.action === 'join') {
       const code = text(input.code, 30).toUpperCase().replace(/[\s-]/g, '')
       if (!/^[A-F0-9]{12}$/.test(code)) throw new ApiError('Bitte gib den zwölfstelligen Einladungscode ein.')
@@ -168,7 +195,11 @@ export async function PUT(request: Request) {
     const input = await request.json() as Record<string, unknown>
     const groupId = text(input.groupId, 100)
     await membership(groupId, profile.id)
-    const title = text(input.title, 120), date = text(input.date, 10), endDate = text(input.endDate, 10), time = text(input.time, 5), note = text(input.note, 1000), person = text(input.person, 100)
+    const title = text(input.title, 120), date = text(input.date, 10), endDate = text(input.endDate, 10), time = text(input.time, 5), note = text(input.note, 1000)
+    const audience = parseAudience(input.audience) || null
+    if (Array.isArray(input.audience) && input.audience.length > 200) throw new ApiError('Zu viele Personen.')
+    const person = audience ? audience[0] : text(input.person, 100)
+    if (audience) for (const member of audience) await membership(groupId, member)
     const eventType = input.kind === 'task' ? 'task' : text(input.eventType, 20) || 'private'
     if (!PLANNER_CATEGORIES.some(category => category.id === eventType)) throw new ApiError('Die Art des Eintrags ist ungültig.')
     if (!title || !validDay(date) || (endDate && (!validDay(endDate) || endDate < date))) throw new ApiError('Bitte prüfe Titel und Zeitraum.')
@@ -178,12 +209,13 @@ export async function PUT(request: Request) {
     if (!/^[\w-]+$/.test(id)) throw new ApiError('Ungültiger Eintrag.')
     if (WASTE_PICKUPS.some(pickup => pickup.id === id)) throw new ApiError('Diese Müllabholung kann als rausgestellt bestätigt werden.')
     const imported = await getDb().prepare('SELECT * FROM planner_events WHERE id = ?').bind(id).first<EventRow>()
+    if (audience && imported?.waste_kind) throw new ApiError('Ungültiger Kalender.')
     if (person === 'parents' && (!imported?.waste_kind || groupId !== 'family' || !PARENTS.includes(profile.id))) throw new ApiError('Ungültiger Kalender.', 403)
     if (imported?.waste_kind && groupId === 'family' && !PARENTS.includes(profile.id)) throw new ApiError('Die Mülltermine sind für Sascha und Katharina.', 403)
     if (groupId === 'family' && !imported) {
       const headers = new Headers(request.headers)
       headers.set('x-familyflow-actor', profile.id)
-      const result = await saveFamilyEvent(new Request(request.url, { method: 'PUT', headers, body: JSON.stringify({ id, kind: input.kind === 'task' ? 'task' : 'event', title, date, endDate, time, note, person, assignee: person, completed: input.completed, eventType: input.eventType || 'private', revision: input.revision }) }))
+      const result = await saveFamilyEvent(new Request(request.url, { method: 'PUT', headers, body: JSON.stringify({ id, kind: input.kind === 'task' ? 'task' : 'event', title, date, endDate, time, note, person, assignee: person, ...(audience ? { audience } : {}), completed: input.completed, eventType: input.eventType || 'private', revision: input.revision }) }))
       if (!result.ok) return result
       return reply(request.headers.get('prefer')?.includes('return=minimal')?{saved:true}:await bundle(profile))
     }
@@ -192,7 +224,7 @@ export async function PUT(request: Request) {
     if (old && old.group_id !== groupId) throw new ApiError('Dieser Eintrag gehört zu einer anderen Gruppe.', 403)
     if (old && old.revision !== input.revision) throw new ApiError('Dieser Termin wurde inzwischen geändert. Bitte neu laden.', 409)
     const previous = old && !imported?.waste_kind ? await entrySnapshot({kind:'event',id}) : undefined
-    const write = await db.prepare(`INSERT INTO planner_events (id, group_id, title, date, end_date, time, note, person, event_type, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, date=excluded.date, end_date=excluded.end_date, time=excluded.time, note=excluded.note, person=excluded.person, event_type=excluded.event_type, revision=excluded.revision WHERE planner_events.revision=excluded.revision-1 AND planner_events.group_id=excluded.group_id`).bind(id, groupId, title, date, endDate || null, time || null, note || null, person, eventType, old ? old.revision + 1 : 1).run()
+    const write = await db.prepare(`INSERT INTO planner_events (id, group_id, title, date, end_date, time, note, person, event_type, revision, audience) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, date=excluded.date, end_date=excluded.end_date, time=excluded.time, note=excluded.note, person=excluded.person, event_type=excluded.event_type, audience=excluded.audience, revision=excluded.revision WHERE planner_events.revision=excluded.revision-1 AND planner_events.group_id=excluded.group_id`).bind(id, groupId, title, date, endDate || null, time || null, note || null, person, eventType, old ? old.revision + 1 : 1, audience ? JSON.stringify(audience) : null).run()
     if (!write.meta.changes) throw new ApiError('Der Termin wurde inzwischen geändert. Bitte neu laden.', 409)
     if (!imported?.waste_kind) await recordEntryChange({kind:'event',id},profile,previous)
     return reply(request.headers.get('prefer')?.includes('return=minimal')?{saved:true}:await bundle(profile))

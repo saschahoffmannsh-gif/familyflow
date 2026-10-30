@@ -124,3 +124,42 @@ test('waste import skips existing collections and keeps imported pickups private
  const katha = await call('POST', { action: 'legacy', id: 'katharina', code: 'qa-profile-code' })
  assert.equal(katha.events.find(e => e.id === saved.id).completed, true)
 })
+
+test('subgroups and entries for several people stay consistent', async () => {
+ const a = await call('POST', { action: 'profile', name: 'Chefin' }), b = await call('POST', { action: 'profile', name: 'Ben' }), c = await call('POST', { action: 'profile', name: 'Cem' }), x = await call('POST', { action: 'profile', name: 'Fremd' })
+ const created = await call('POST', { action: 'create-group', name: 'Betrieb', category: 'Arbeit' }, a.identity.key)
+ const group = created.groups.find(g => g.id === created.selectedGroupId)
+ await call('POST', { action: 'join', code: group.inviteCode }, b.identity.key); await call('POST', { action: 'join', code: group.inviteCode }, c.identity.key)
+ await call('POST', { action: 'subgroup-save', groupId: group.id, name: 'Früh', members: [a.profile.id, x.profile.id] }, a.identity.key, 403)
+ await call('POST', { action: 'subgroup-save', groupId: group.id, name: 'Früh', members: [b.profile.id] }, x.identity.key, 403)
+ let saved = await call('POST', { action: 'subgroup-save', groupId: group.id, name: 'Früh', members: [b.profile.id, c.profile.id] }, a.identity.key)
+ let sub = saved.groups.find(g => g.id === group.id).subgroups.find(s => s.id === saved.subgroupId)
+ assert.deepEqual(sub.members.sort(), [b.profile.id, c.profile.id].sort())
+ saved = await call('POST', { action: 'subgroup-save', groupId: group.id, id: sub.id, name: 'Frühschicht', members: [b.profile.id, c.profile.id] }, b.identity.key)
+ assert.equal(saved.groups.find(g => g.id === group.id).subgroups[0].name, 'Frühschicht')
+ const e = { id: crypto.randomUUID(), groupId: group.id, title: 'Übergabe', date: '2027-01-08', person: b.profile.id, audience: [b.profile.id, c.profile.id], eventType: 'work' }
+ let bundle = await call('PUT', e, a.identity.key)
+ let ev = bundle.events.find(v => v.id === e.id)
+ assert.deepEqual(ev.audience, [b.profile.id, c.profile.id]); assert.equal(ev.person, b.profile.id)
+ assert.ok((await call('GET', null, c.identity.key)).events.some(v => v.id === e.id))
+ await call('PUT', { ...e, id: crypto.randomUUID(), audience: [b.profile.id, x.profile.id] }, a.identity.key, 403)
+ bundle = await call('PUT', { ...e, audience: undefined, person: c.profile.id, revision: 1 }, a.identity.key)
+ assert.equal(bundle.events.find(v => v.id === e.id).audience, undefined, 'back to a single person')
+ const task = { id: crypto.randomUUID(), groupId: group.id, title: 'Lager', date: '2027-01-09', kind: 'task', person: a.profile.id, audience: [a.profile.id, b.profile.id] }
+ bundle = await call('PUT', task, c.identity.key)
+ assert.deepEqual(bundle.events.find(v => v.id === task.id).audience, [a.profile.id, b.profile.id])
+ bundle = await call('POST', { action: 'subgroup-delete', groupId: group.id, id: sub.id }, a.identity.key)
+ assert.deepEqual(bundle.groups.find(g => g.id === group.id).subgroups, [])
+ assert.ok(bundle.events.some(v => v.id === e.id), 'entries survive subgroup deletion')
+})
+test('family entries for several people keep audience through the legacy calendar', async () => {
+ const family = await call('POST', { action: 'legacy', id: 'sascha', code: 'qa-profile-code' }); const key = family.identity.key
+ const p = { id: crypto.randomUUID(), groupId: 'family', title: 'Eltern-Abend', date: '2027-02-01', person: 'sascha', audience: ['sascha', 'katharina'], eventType: 'private' }
+ let result = await call('PUT', p, key)
+ assert.deepEqual(result.events.find(e => e.id === p.id).audience, ['sascha', 'katharina'])
+ const arjen = await call('POST', { action: 'legacy', id: 'arjen', code: 'qa-profile-code' })
+ const seen = arjen.events.find(e => e.id === p.id)
+ assert.ok(seen && !seen.audience.includes('arjen'))
+ await call('PUT', { ...p, audience: ['sascha', 'nobody'], revision: 1 }, key, 403)
+ await call('DELETE', { ...p, revision: 1 }, key)
+})

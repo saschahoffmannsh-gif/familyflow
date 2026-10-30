@@ -4,6 +4,7 @@ import { familyApiAccess } from "@/lib/family-api-access"
 import { getDb } from "@/db"
 import type { CalendarItem, EventType, PersonId } from "@/lib/familyflow-storage"
 import { notifyPeople } from "@/lib/push-server"
+import { parseAudience } from "@/lib/planner"
 
 export const dynamic = "force-dynamic"
 
@@ -18,12 +19,13 @@ type CalendarRow = {
   note: string | null
   person: PersonId | "all" | null
   assignee: PersonId | null
+  audience?: string | null
   completed: number
   revision: number
   updated_at: string
 }
 
-type AssignmentRow = Pick<CalendarRow, "kind" | "person" | "assignee">
+type AssignmentRow = Pick<CalendarRow, "kind" | "person" | "assignee" | "audience">
 
 const PEOPLE = new Set<PersonId>(["sascha", "katharina", "arjen"])
 const EVENT_TYPES = new Set<EventType>(["private", "work", "vacation", "holidays", "birthday", "other"])
@@ -75,12 +77,14 @@ function fromRow(row: CalendarRow): CalendarItem {
     ...(row.kind === "event"
       ? { ...(!UNASSIGNED_EVENT_TYPES.has(eventType) ? { person: row.person ?? "all" } : {}), eventType }
       : { assignee: row.assignee ?? "sascha", completed: row.completed === 1 }),
+    ...(parseAudience(row.audience) ? { audience: parseAudience(row.audience) as PersonId[] } : {}),
     revision: row.revision,
     updatedAt: row.updated_at,
   }
 }
 
 function recipients(item: CalendarItem): PersonId[] {
+  if (item.audience?.length) return item.audience
   if (item.kind === "task") return item.assignee ? [item.assignee] : []
   if (UNASSIGNED_EVENT_TYPES.has(item.eventType ?? "private")) return []
   if (item.person === "all") return ["sascha", "katharina", "arjen"]
@@ -88,7 +92,8 @@ function recipients(item: CalendarItem): PersonId[] {
 }
 
 function assignmentKey(value: CalendarItem | AssignmentRow) {
-  return value.kind === "task" ? value.assignee : value.person
+  const audience = "audience" in value && value.audience ? (Array.isArray(value.audience) ? value.audience : parseAudience(value.audience)) : undefined
+  return audience?.length ? audience.join(",") : value.kind === "task" ? value.assignee : value.person
 }
 
 function notificationFor(item: CalendarItem) {
@@ -102,7 +107,7 @@ function notificationFor(item: CalendarItem) {
   const range = item.endDate ? `${start} bis ${formatter.format(new Date(`${item.endDate}T12:00:00Z`))}` : start
   const when = item.time ? `${range} um ${item.time} Uhr` : range
   return {
-    title: item.kind === "task" ? "Neuer Auftrag für dich" : item.person === "all" ? "Neuer Familientermin" : "Neuer Termin für dich",
+    title: item.kind === "task" ? (item.audience ? "Neuer Auftrag für euch" : "Neuer Auftrag für dich") : item.audience ? "Neuer Termin für euch" : item.person === "all" ? "Neuer Familientermin" : "Neuer Termin für dich",
     body: `${item.title} · ${when}`,
     tag: `new-${item.id}`,
     url: "/",
@@ -121,6 +126,8 @@ function parseItem(value: unknown, allowedPeople = PEOPLE): CalendarItem {
   const time = typeof input.time === "string" && input.time ? input.time : undefined
   const note = typeof input.note === "string" && input.note.trim() ? input.note.trim() : undefined
   const revision = typeof input.revision === "number" && Number.isInteger(input.revision) && input.revision > 0 ? input.revision : undefined
+  const audience = parseAudience(input.audience) as PersonId[] | undefined
+  if (audience?.some((person) => !allowedPeople.has(person))) throw new ValidationError("Die Person ist ungültig")
 
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new ValidationError("Ungültige ID")
   if (kind !== "event" && kind !== "task") throw new ValidationError("Ungültige Art")
@@ -133,7 +140,7 @@ function parseItem(value: unknown, allowedPeople = PEOPLE): CalendarItem {
   if (note && note.length > 1000) throw new ValidationError("Die Notiz ist zu lang")
 
   if (kind === "event") {
-    const person = input.person
+    const person = audience ? audience[0] : input.person
     if (!EVENT_TYPES.has(eventType as EventType)) throw new ValidationError("Die Terminart ist ungültig")
     if (UNASSIGNED_EVENT_TYPES.has(eventType as EventType)) {
       return { id, kind, title, date, ...(endDate && endDate !== date ? { endDate } : {}), eventType: eventType as EventType, ...(time ? { time } : {}), ...(note ? { note } : {}), ...(revision ? { revision } : {}) }
@@ -141,10 +148,10 @@ function parseItem(value: unknown, allowedPeople = PEOPLE): CalendarItem {
     if (person !== "all" && (typeof person !== "string" || !allowedPeople.has(person as PersonId))) {
       throw new ValidationError("Die Person ist ungültig")
     }
-    return { id, kind, title, date, ...(endDate && endDate !== date ? { endDate } : {}), eventType: eventType as EventType, ...(time ? { time } : {}), ...(note ? { note } : {}), person: person as PersonId | "all", ...(revision ? { revision } : {}) }
+    return { id, kind, title, date, ...(endDate && endDate !== date ? { endDate } : {}), eventType: eventType as EventType, ...(time ? { time } : {}), ...(note ? { note } : {}), person: person as PersonId | "all", ...(audience ? { audience } : {}), ...(revision ? { revision } : {}) }
   }
 
-  const assignee = input.assignee
+  const assignee = audience ? audience[0] : input.assignee
   if (typeof assignee !== "string" || !allowedPeople.has(assignee as PersonId)) throw new ValidationError("Die Zuständigkeit ist ungültig")
   return {
     id,
@@ -155,6 +162,7 @@ function parseItem(value: unknown, allowedPeople = PEOPLE): CalendarItem {
     ...(time ? { time } : {}),
     ...(note ? { note } : {}),
     assignee: assignee as PersonId,
+    ...(audience ? { audience } : {}),
     completed: input.completed === true,
     ...(revision ? { revision } : {}),
   }
@@ -165,7 +173,7 @@ export async function GET(request: Request) {
   if (denied) return denied
   try {
     const result = await getDb().prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items
       ORDER BY date ASC, COALESCE(time, '99:99') ASC, title ASC
     `).all<CalendarRow>()
@@ -189,7 +197,7 @@ export async function PUT(request: Request) {
     const familyMembers = await db.prepare("SELECT profile_id FROM planner_members WHERE group_id = 'family'").all<{ profile_id: string }>()
     const item = parseItem(await request.json(), new Set<PersonId>([...PEOPLE, ...familyMembers.results.map(member => member.profile_id as PersonId)]))
     const previous = await db.prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items
       WHERE id = ?
     `).bind(item.id).first<CalendarRow>()
@@ -202,8 +210,8 @@ export async function PUT(request: Request) {
     const nextRevision = previous ? previous.revision + 1 : 1
 
     const write = await db.prepare(`
-      INSERT INTO calendar_items (id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      INSERT INTO calendar_items (id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         title = excluded.title,
@@ -214,6 +222,7 @@ export async function PUT(request: Request) {
         note = excluded.note,
         person = excluded.person,
         assignee = excluded.assignee,
+        audience = excluded.audience,
         completed = excluded.completed,
         revision = excluded.revision,
         updated_at = excluded.updated_at
@@ -229,13 +238,14 @@ export async function PUT(request: Request) {
       item.note ?? null,
       item.kind === "event" ? item.person ?? null : null,
       item.kind === "task" ? item.assignee ?? null : null,
+      item.audience?.length ? JSON.stringify(item.audience) : null,
       item.completed ? 1 : 0,
       nextRevision,
     ).run()
 
     if (write.meta.changes === 0) {
       const current = await db.prepare(`
-        SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+        SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
         FROM calendar_items
         WHERE id = ?
       `).bind(item.id).first<CalendarRow>()
@@ -252,7 +262,7 @@ export async function PUT(request: Request) {
     if (request.headers.get("prefer")?.includes("return=minimal")) return response({saved:true})
 
     const saved = await db.prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items
       WHERE id = ?
     `).bind(item.id).first<CalendarRow>()
@@ -282,7 +292,7 @@ export async function DELETE(request: Request) {
 
     const db = getDb()
     const current = await db.prepare(`
-      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, completed, revision, updated_at
+      SELECT id, kind, title, date, end_date, event_type, time, note, person, assignee, audience, completed, revision, updated_at
       FROM calendar_items WHERE id = ?
     `).bind(payload.id).first<CalendarRow>()
     if (!current) return response({ deleted: true })
