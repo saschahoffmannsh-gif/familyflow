@@ -13,13 +13,47 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="format-detection" content="telephone=no" />
     <title>Done</title>
-    <link rel="manifest" href="%BASE_URL%manifest.webmanifest?v=done-v3" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest?v=done-v4" />
     <link rel="icon" href="%BASE_URL%branding/done-v3-favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="%BASE_URL%branding/done-v3-icon-192.png" sizes="192x192" type="image/png" />
     <link rel="shortcut icon" href="%BASE_URL%branding/done-v3-favicon-32.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%branding/done-v3-apple-180.png" sizes="180x180" />
+    <style>
+      #done-splash{position:fixed;inset:0;z-index:2147483000;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;transition:opacity .45s ease;-webkit-user-select:none;user-select:none}
+      #done-splash.is-out{opacity:0;pointer-events:none}
+      #done-splash svg{width:min(52vw,240px);height:auto;animation:done-splash-in .6s ease both}
+      #done-splash p{margin:0;font-size:22px;font-weight:600;letter-spacing:.01em;animation:done-splash-in .6s .15s ease both}
+      #done-splash .bar{width:min(56vw,240px);height:3px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
+      #done-splash .bar i{display:block;height:100%;width:100%;background:#fff;border-radius:inherit;transform:scaleX(0);transform-origin:left;animation:done-splash-bar 5s linear forwards}
+      @keyframes done-splash-bar{to{transform:scaleX(1)}}
+      @keyframes done-splash-in{from{opacity:0;transform:translateY(6px)}}
+    </style>
   </head>
   <body>
+    <div id="done-splash" role="status" aria-label="App wird geladen">
+      <svg viewBox="56 56 400 400" aria-hidden="true"><circle cx="256" cy="256" r="150" fill="none" stroke="#fff" stroke-width="22"/><path d="M186 260 L238 312 L330 210" fill="none" stroke="#fff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <p id="done-splash-text">Willkommen</p>
+      <div class="bar"><i></i></div>
+    </div>
+    <script>
+      (function () {
+        var el = document.getElementById("done-splash"), meta = document.querySelector('meta[name="theme-color"]')
+        var reloaded = Number(sessionStorage.getItem("du-machst-das:sw-reloaded-at") || 0)
+        if (Date.now() - reloaded < 10000) { el.remove(); return }
+        try {
+          var names = { sascha: "Sascha", katharina: "Katharina", arjen: "Arjen" }
+          var id = (JSON.parse(localStorage.getItem("dmd:planner-identity:v1") || "null") || {}).id
+          if (names[id]) document.getElementById("done-splash-text").textContent = "Willkommen, " + names[id]
+        } catch (e) {}
+        var light = meta && meta.content
+        if (meta) meta.content = "#000000"
+        setTimeout(function () {
+          el.classList.add("is-out")
+          if (meta) meta.content = light
+          setTimeout(function () { el.remove() }, 500)
+        }, 5000)
+      })()
+    </script>
     <div id="root"></div>
     <script type="module" src="./main.tsx"></script>
   </body>

@@ -57,7 +57,7 @@ export default function PlannerApp() {
     const [ready, setReady] = useState(false);
     const [error, setError] = useState('');
     const [syncing, setSyncing] = useState(false);
-    const [screen, setScreen] = useState<'home' | 'calendar' | 'lists'>('calendar');
+    const [screen, setScreen] = useState<'home' | 'calendar' | 'lists'>('home');
     const [agendaFilter, setAgendaFilter] = useState<'all' | 'events' | 'tasks'>('all');
     const [groupId, setGroupId] = useState('family');
     const [personId, setPersonId] = useState('');

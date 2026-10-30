@@ -1,4 +1,4 @@
-const CACHE_NAME = "done-v38-icon-v3";
+const CACHE_NAME = "done-v39-ladebildschirm";
 // GitHub Pages: die App liegt unter /familyflow/. Alle App-Pfade werden relativ zum Scope des Service Workers gebildet.
 const SCOPE = new URL(self.registration.scope)
 const scoped = (path) => {
@@ -6,7 +6,7 @@ const scoped = (path) => {
   return SCOPE.pathname + path.slice(1)
 }
 const ROOT = scoped("/")
-const APP_SHELL = [ROOT, scoped("/manifest.webmanifest?v=done-v3"), scoped("/manifest.webmanifest"), scoped("/branding/done-v3-logo-128.png"), scoped("/branding/done-v3-icon-192.png"), scoped("/branding/done-v3-icon-512.png"), scoped("/branding/done-v3-apple-180.png"), scoped("/branding/done-v3-favicon-32.png")]
+const APP_SHELL = [ROOT, scoped("/manifest.webmanifest?v=done-v4"), scoped("/manifest.webmanifest"), scoped("/branding/done-v3-logo-128.png"), scoped("/branding/done-v3-icon-192.png"), scoped("/branding/done-v3-icon-512.png"), scoped("/branding/done-v3-apple-180.png"), scoped("/branding/done-v3-favicon-32.png")]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)))

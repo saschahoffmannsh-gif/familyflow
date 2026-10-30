@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Dein persönlicher Kalender für Familie, Team und Arbeit.",
   applicationName: "Done",
   referrer: "no-referrer",
-  manifest: "/manifest.webmanifest?v=done-v3",
+  manifest: "/manifest.webmanifest?v=done-v4",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
