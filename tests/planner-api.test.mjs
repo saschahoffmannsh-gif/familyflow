@@ -163,3 +163,28 @@ test('family entries for several people keep audience through the legacy calenda
  await call('PUT', { ...p, audience: ['sascha', 'nobody'], revision: 1 }, key, 403)
  await call('DELETE', { ...p, revision: 1 }, key)
 })
+test('Mitteilungen: neue Einträge von anderen, gesehen-Status', async () => {
+ const plugins = (await build({ entryPoints: [path.join(root, 'app/api/notices/route.ts')], bundle: true, platform: 'node', format: 'esm', write: false, metafile: false, plugins: [{ name: 'd1-test-adapter', setup(b) {
+  b.onResolve({ filter: /^@\/db$/ }, () => ({ path: 'db', namespace: 'test' }))
+  b.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const getDb = () => globalThis.__plannerTestDb', loader: 'js' }))
+  b.onResolve({ filter: /^@\// }, ({ path: specifier }) => { const base = path.join(root, specifier.slice(2)); for (const suffix of ['.ts', '/index.ts']) { try { readFileSync(base + suffix); return { path: base + suffix } } catch {} } })
+ } }] })).outputFiles[0].text
+ const notices = await import('data:text/javascript;base64,' + Buffer.from(plugins).toString('base64'))
+ const get = async (key, count) => (await notices.GET(new Request(`https://planner.test/api/notices${count ? '?count=1' : ''}`, { headers: { Authorization: `Bearer ${key}` } }))).json()
+ const a = await call('POST', { action: 'profile', name: 'Anna' }), b = await call('POST', { action: 'profile', name: 'Bert' })
+ const created = await call('POST', { action: 'create-group', name: 'Haus', category: 'Team' }, a.identity.key)
+ const group = created.groups.find(g => g.id === created.selectedGroupId)
+ await call('POST', { action: 'join', code: group.inviteCode }, b.identity.key)
+ const e = { id: crypto.randomUUID(), groupId: group.id, title: 'Für Bert', date: '2027-03-01', person: b.profile.id, eventType: 'private' }
+ await call('PUT', e, a.identity.key)
+ await call('PUT', { id: crypto.randomUUID(), groupId: group.id, title: 'Selbst', date: '2027-03-02', person: b.profile.id, eventType: 'private' }, b.identity.key)
+ await call('PUT', { id: crypto.randomUUID(), groupId: group.id, title: 'Für Anna', date: '2027-03-02', person: a.profile.id, eventType: 'private' }, a.identity.key)
+ assert.equal((await get(b.identity.key, true)).unread, 1)
+ const list = await get(b.identity.key)
+ assert.deepEqual(list.items.map(i => [i.title, i.actor, i.unread]), [['Für Bert', 'Anna', true]])
+ assert.equal((await get(a.identity.key)).items.length, 0, 'eigene Einträge erscheinen nicht')
+ const seen = await (await notices.POST(new Request('https://planner.test/api/notices', { method: 'POST', headers: { Authorization: `Bearer ${b.identity.key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'seen' }) }))).json()
+ assert.equal(seen.unread, 0); assert.equal(seen.items.length, 1)
+ await call('DELETE', { ...e, revision: 1 }, a.identity.key)
+ assert.equal((await get(b.identity.key)).items.length, 0, 'gelöschte Einträge verschwinden')
+})

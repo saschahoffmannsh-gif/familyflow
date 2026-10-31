@@ -3,14 +3,18 @@ import { ChatError, inGroup, sourceFor, type ThreadRow } from './discussion-serv
 import type { ChatEntry, EntryRef } from './discussions'
 import { parseAudience, type PlannerPerson } from './planner'
 import type { InboxData, InboxItem, InboxType } from './inbox'
+import { recordNotices } from './notices-server'
 
 type Snapshot = { entry: ChatEntry; groupId: string; people: string[] }
 export async function entrySnapshot(ref: EntryRef): Promise<Snapshot> {
   const db = getDb(), source = await sourceFor(ref.kind, ref.id)
   let person: string | null = null, audience: string[] | undefined
   if (ref.kind === 'todo') {
-    const todo = await db.prepare('SELECT created_by FROM todo_items WHERE id=?').bind(ref.id).first<{created_by:string}>()
-    if (todo) person = todo.created_by
+    const todo = await db.prepare('SELECT created_by, audience FROM todo_items WHERE id=?').bind(ref.id).first<{created_by:string;audience:string|null}>()
+    // Offene Aufträge gelten für alle, denen sie angeboten werden (ohne Auswahl: ganze Familie).
+    if (todo) { let offered: unknown = null; try { offered = JSON.parse(todo.audience || 'null') } catch {}
+      audience = Array.isArray(offered) && offered.length ? offered.filter((id): id is string => typeof id === 'string') : undefined
+      person = audience ? null : 'all' }
     else return entrySnapshot({kind:'event',id:`todo-${ref.id}`})
   } else {
     const row = await db.prepare('SELECT person, audience FROM planner_events WHERE id=?').bind(ref.id).first<{person:string;audience:string|null}>()
@@ -37,6 +41,7 @@ export async function recordEntryChange(ref: EntryRef, actor: PlannerPerson, pre
   const next=removed?previous!:await entrySnapshot(ref), before=previous?.entry, after=next.entry
   const fields=[['title','Titel'],['date','Datum'],['endDate','Zeitraum'],['time','Uhrzeit'],['note','Notiz'],['kind','Art']] as const
   const changed=fields.filter(([key])=>(before?.[key]||'')!==(after[key]||''))
+  if (!removed) await recordNotices(ref.kind,ref.id,actor,next,previous)
   const assigned=previous&&previous.people.slice().sort().join('|')!==next.people.slice().sort().join('|')
   if (previous&&!removed&&!changed.length&&!assigned) return
   const thread=await threadFor(ref,actor),db=getDb()

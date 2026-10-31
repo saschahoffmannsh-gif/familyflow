@@ -1,22 +1,22 @@
 // Generiert von scripts/build-function.mjs – nicht von Hand bearbeiten.
 var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// app/api/calendar/route.ts
-var route_exports = {};
-__export(route_exports, {
-  DELETE: () => DELETE,
-  GET: () => GET,
-  PUT: () => PUT,
-  dynamic: () => dynamic
-});
-
 // server/env.ts
-var store = () => globalThis.__familyflowEnv ||= {};
-var env = new Proxy({}, { get: (_t, key) => store()[key] });
+var store, env;
+var init_env = __esm({
+  "server/env.ts"() {
+    store = () => globalThis.__familyflowEnv ||= {};
+    env = new Proxy({}, { get: (_t, key) => store()[key] });
+  }
+});
 
 // db/index.ts
 function getDb() {
@@ -27,15 +27,13 @@ function getDb() {
   }
   return env.DB;
 }
+var init_db = __esm({
+  "db/index.ts"() {
+    init_env();
+  }
+});
 
 // lib/discussion-server.ts
-var ChatError = class extends Error {
-  constructor(message, status = 400) {
-    super(message);
-    this.status = status;
-  }
-};
-var chatReply = (value, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" } });
 function chatFail(e) {
   if (e instanceof ChatError) return chatReply({ error: e.message }, e.status);
   console.error("Done chat error", e);
@@ -45,7 +43,6 @@ function allowChatWrite(r) {
   const o = r.headers.get("origin");
   return r.headers.get("sec-fetch-site") !== "cross-site" && (!o || o === new URL(r.url).origin);
 }
-var clean = (v, max) => typeof v === "string" ? v.trim().slice(0, max) : "";
 async function chatIdentity(r, optional = false) {
   const token = r.headers.get("authorization")?.replace(/^Bearer /, "");
   if (!token && optional) return null;
@@ -142,22 +139,22 @@ async function dueReminders(p) {
   }
   return result;
 }
+var ChatError, chatReply, clean;
+var init_discussion_server = __esm({
+  "lib/discussion-server.ts"() {
+    init_db();
+    ChatError = class extends Error {
+      constructor(message, status = 400) {
+        super(message);
+        this.status = status;
+      }
+    };
+    chatReply = (value, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" } });
+    clean = (v, max) => typeof v === "string" ? v.trim().slice(0, max) : "";
+  }
+});
 
 // lib/planner.ts
-var LEGACY_PEOPLE = [
-  { id: "sascha", name: "Sascha", color: "#467ba6" },
-  { id: "katharina", name: "Katharina", color: "#d9778f" },
-  { id: "arjen", name: "Arjen", color: "#36a78a" }
-];
-var PLANNER_CATEGORIES = [
-  { id: "private", label: "Privat", color: "#22835c", background: "#d9f3e7", ink: "#195f44" },
-  { id: "work", label: "Arbeit", color: "#d44c68", background: "#ffe0e4", ink: "#92263c" },
-  { id: "task", label: "Auftrag", color: "#159f78", background: "#d5f4e9", ink: "#12634c" },
-  { id: "vacation", label: "Urlaub", color: "#d7a300", background: "#ffef9e", ink: "#685100" },
-  { id: "holidays", label: "Ferien / Feiertage", color: "#a96ccf", background: "linear-gradient(100deg, #ffd7e5, #ffe8a9 34%, #d9f3cc 67%, #cfe9ff)", ink: "#384960" },
-  { id: "birthday", label: "Geburtstag", color: "#c34e9c", background: "#f7dff0", ink: "#853266" },
-  { id: "other", label: "Sonstiges", color: "#63849c", background: "#e4edf3", ink: "#3b5c72" }
-];
 function parseAudience(value) {
   let list = value;
   if (typeof value === "string") {
@@ -171,15 +168,94 @@ function parseAudience(value) {
   const ids = [...new Set(list.filter((id) => typeof id === "string" && /^[\w-]{1,100}$/.test(id)))];
   return ids.length >= 2 ? ids : void 0;
 }
+var LEGACY_PEOPLE, PLANNER_CATEGORIES;
+var init_planner = __esm({
+  "lib/planner.ts"() {
+    LEGACY_PEOPLE = [
+      { id: "sascha", name: "Sascha", color: "#467ba6" },
+      { id: "katharina", name: "Katharina", color: "#d9778f" },
+      { id: "arjen", name: "Arjen", color: "#36a78a" }
+    ];
+    PLANNER_CATEGORIES = [
+      { id: "private", label: "Privat", color: "#22835c", background: "#d9f3e7", ink: "#195f44" },
+      { id: "work", label: "Arbeit", color: "#d44c68", background: "#ffe0e4", ink: "#92263c" },
+      { id: "task", label: "Auftrag", color: "#159f78", background: "#d5f4e9", ink: "#12634c" },
+      { id: "vacation", label: "Urlaub", color: "#d7a300", background: "#ffef9e", ink: "#685100" },
+      { id: "holidays", label: "Ferien / Feiertage", color: "#a96ccf", background: "linear-gradient(100deg, #ffd7e5, #ffe8a9 34%, #d9f3cc 67%, #cfe9ff)", ink: "#384960" },
+      { id: "birthday", label: "Geburtstag", color: "#c34e9c", background: "#f7dff0", ink: "#853266" },
+      { id: "other", label: "Sonstiges", color: "#63849c", background: "#e4edf3", ink: "#3b5c72" }
+    ];
+  }
+});
+
+// lib/notices-server.ts
+async function recordNotices(kind, id, actor, next, previous) {
+  const before = new Set(previous?.people || []);
+  const people = next.people.filter((person) => person !== actor.id && !before.has(person));
+  if (!people.length) return;
+  const db = getDb(), now = (/* @__PURE__ */ new Date()).toISOString();
+  await db.batch(people.map((person) => db.prepare("INSERT INTO planner_notices (id,profile_id,actor_id,source_kind,source_id,group_id,title,entry_kind,date,time,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), person, actor.id, kind, id, next.groupId, next.entry.title, next.entry.kind, next.entry.date || null, next.entry.time || null, now)));
+}
+async function stillMine(row, profileId, snapshot) {
+  try {
+    const s = await snapshot({ kind: row.source_kind, id: row.source_id });
+    return s.people.includes(profileId) ? s : null;
+  } catch (e) {
+    if (e instanceof ChatError && e.status === 404) return null;
+    throw e;
+  }
+}
+async function noticesFor(profile, countOnly = false) {
+  const { entrySnapshot: entrySnapshot2 } = await Promise.resolve().then(() => (init_inbox_server(), inbox_server_exports));
+  const db = getDb();
+  const seen = (await db.prepare("SELECT seen_at FROM planner_notice_seen WHERE profile_id=?").bind(profile.id).first())?.seen_at || "";
+  const since = new Date(Date.now() - 60 * 864e5).toISOString();
+  const rows = (await db.prepare(`SELECT n.*, p.name AS actor, p.color FROM planner_notices n LEFT JOIN planner_profiles p ON p.id=n.actor_id
+    WHERE n.profile_id=? AND n.actor_id<>? AND n.created_at>? ${countOnly ? "AND n.created_at>?" : ""} ORDER BY n.created_at DESC LIMIT 60`).bind(profile.id, profile.id, since, ...countOnly ? [seen] : []).all()).results;
+  const items = [], done = /* @__PURE__ */ new Set();
+  for (const row of rows) {
+    const key = `${row.source_kind}:${row.source_id}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const current = await stillMine(row, profile.id, entrySnapshot2);
+    if (!current) continue;
+    const entry = current.entry;
+    items.push({ id: row.id, sourceKind: row.source_kind, sourceId: row.source_id, groupId: current.groupId, title: entry.title, entryKind: entry.kind, ...entry.date ? { date: entry.date } : {}, ...entry.time ? { time: entry.time } : {}, actor: row.actor || "Jemand", actorColor: row.color || "#7446c5", createdAt: row.created_at, unread: row.created_at > seen });
+  }
+  return { items: countOnly ? [] : items, unread: items.filter((item) => item.unread).length };
+}
+async function markNoticesSeen(profile) {
+  await getDb().prepare("INSERT INTO planner_notice_seen (profile_id,seen_at) VALUES (?,?) ON CONFLICT(profile_id) DO UPDATE SET seen_at=excluded.seen_at").bind(profile.id, (/* @__PURE__ */ new Date()).toISOString()).run();
+}
+var init_notices_server = __esm({
+  "lib/notices-server.ts"() {
+    init_db();
+    init_discussion_server();
+  }
+});
 
 // lib/inbox-server.ts
+var inbox_server_exports = {};
+__export(inbox_server_exports, {
+  entrySnapshot: () => entrySnapshot,
+  inboxFor: () => inboxFor,
+  markInboxRead: () => markInboxRead,
+  recordEntryChange: () => recordEntryChange
+});
 async function entrySnapshot(ref) {
   const db = getDb(), source = await sourceFor(ref.kind, ref.id);
   let person = null, audience;
   if (ref.kind === "todo") {
-    const todo = await db.prepare("SELECT created_by FROM todo_items WHERE id=?").bind(ref.id).first();
-    if (todo) person = todo.created_by;
-    else return entrySnapshot({ kind: "event", id: `todo-${ref.id}` });
+    const todo = await db.prepare("SELECT created_by, audience FROM todo_items WHERE id=?").bind(ref.id).first();
+    if (todo) {
+      let offered = null;
+      try {
+        offered = JSON.parse(todo.audience || "null");
+      } catch {
+      }
+      audience = Array.isArray(offered) && offered.length ? offered.filter((id) => typeof id === "string") : void 0;
+      person = audience ? null : "all";
+    } else return entrySnapshot({ kind: "event", id: `todo-${ref.id}` });
   } else {
     const row = await db.prepare("SELECT person, audience FROM planner_events WHERE id=?").bind(ref.id).first() || await db.prepare("SELECT CASE WHEN kind='task' THEN assignee ELSE COALESCE(person,'all') END AS person, audience FROM calendar_items WHERE id=?").bind(ref.id).first();
     person = row?.person || null;
@@ -202,6 +278,7 @@ async function recordEntryChange(ref, actor, previous, removed = false) {
   const next = removed ? previous : await entrySnapshot(ref), before = previous?.entry, after = next.entry;
   const fields = [["title", "Titel"], ["date", "Datum"], ["endDate", "Zeitraum"], ["time", "Uhrzeit"], ["note", "Notiz"], ["kind", "Art"]];
   const changed = fields.filter(([key]) => (before?.[key] || "") !== (after[key] || ""));
+  if (!removed) await recordNotices(ref.kind, ref.id, actor, next, previous);
   const assigned = previous && previous.people.slice().sort().join("|") !== next.people.slice().sort().join("|");
   if (previous && !removed && !changed.length && !assigned) return;
   const thread = await threadFor(ref, actor), db = getDb();
@@ -262,8 +339,28 @@ async function markInboxRead(profile, threadId) {
   for (let offset = 0; offset < items.length; offset += 50) await db.batch(items.slice(offset, offset + 50).map((item) => db.prepare("INSERT INTO inbox_states (profile_id,thread_id,read_at,read_id) VALUES (?,?,?,?) ON CONFLICT(profile_id,thread_id) DO UPDATE SET read_at=excluded.read_at,read_id=excluded.read_id WHERE excluded.read_at>inbox_states.read_at OR (excluded.read_at=inbox_states.read_at AND excluded.read_id>inbox_states.read_id)").bind(profile.id, item.threadId, item.createdAt, item.activityId)));
   return inboxFor(profile);
 }
+var init_inbox_server = __esm({
+  "lib/inbox-server.ts"() {
+    init_db();
+    init_discussion_server();
+    init_planner();
+    init_notices_server();
+  }
+});
+
+// app/api/calendar/route.ts
+var route_exports = {};
+__export(route_exports, {
+  DELETE: () => DELETE,
+  GET: () => GET,
+  PUT: () => PUT,
+  dynamic: () => dynamic
+});
+init_inbox_server();
+init_discussion_server();
 
 // lib/family-api-access.ts
+init_discussion_server();
 async function familyApiAccess(request) {
   try {
     const p = await chatIdentity(request);
@@ -272,6 +369,9 @@ async function familyApiAccess(request) {
     return chatFail(e);
   }
 }
+
+// app/api/calendar/route.ts
+init_db();
 
 // node_modules/.pnpm/uint8array-extras@1.5.0/node_modules/uint8array-extras/index.js
 var objectToString = Object.prototype.toString;
@@ -562,6 +662,9 @@ async function buildPushPayload(message, subscription, vapid) {
   };
 }
 
+// lib/push-server.ts
+init_env();
+
 // lib/push-config.ts
 var VAPID_PUBLIC_KEY = "BIXzJh6di0OrKbo9Sf0LvK5S-2SeUfmnqo--qJeDu2NTjDsWiwRW2l3dhREJZTTO4puQm1VFiISTyJXLnR-lzLw";
 
@@ -618,6 +721,7 @@ async function notifyPeople(db, people, notification, excludeDeviceId) {
 }
 
 // app/api/calendar/route.ts
+init_planner();
 var dynamic = "force-dynamic";
 var PEOPLE = /* @__PURE__ */ new Set(["sascha", "katharina", "arjen"]);
 var EVENT_TYPES = /* @__PURE__ */ new Set(["private", "work", "vacation", "holidays", "birthday", "other"]);
@@ -898,6 +1002,8 @@ function validateAttachment(mime, size, bytes) {
 }
 
 // app/api/discussions/route.ts
+init_db();
+init_discussion_server();
 var dynamic2 = "force-dynamic";
 async function GET2(request) {
   try {
@@ -983,6 +1089,9 @@ __export(route_exports3, {
   POST: () => POST2,
   dynamic: () => dynamic3
 });
+init_env();
+init_db();
+init_discussion_server();
 var dynamic3 = "force-dynamic";
 async function POST2(request) {
   if (!allowChatWrite(request)) return chatReply({ error: "Unzul\xE4ssige Anfrage." }, 403);
@@ -1024,6 +1133,9 @@ __export(route_exports4, {
   GET: () => GET3,
   dynamic: () => dynamic4
 });
+init_env();
+init_db();
+init_discussion_server();
 var dynamic4 = "force-dynamic";
 async function GET3(request, context) {
   try {
@@ -1046,6 +1158,8 @@ __export(route_exports5, {
   POST: () => POST3,
   dynamic: () => dynamic5
 });
+init_discussion_server();
+init_inbox_server();
 var dynamic5 = "force-dynamic";
 async function GET4(request) {
   try {
@@ -1067,17 +1181,49 @@ async function POST3(request) {
   }
 }
 
-// app/api/planner/route.ts
+// app/api/notices/route.ts
 var route_exports6 = {};
 __export(route_exports6, {
-  DELETE: () => DELETE2,
   GET: () => GET5,
   POST: () => POST4,
-  PUT: () => PUT2,
   dynamic: () => dynamic6
 });
+init_discussion_server();
+init_notices_server();
+var dynamic6 = "force-dynamic";
+async function GET5(request) {
+  try {
+    return chatReply(await noticesFor(await chatIdentity(request), new URL(request.url).searchParams.get("count") === "1"));
+  } catch (e) {
+    return chatFail(e);
+  }
+}
+async function POST4(request) {
+  if (!allowChatWrite(request)) return chatReply({ error: "Unzul\xE4ssige Anfrage." }, 403);
+  try {
+    const profile = await chatIdentity(request), input = await request.json();
+    if (input.action !== "seen") throw new ChatError("Unbekannte Aktion.");
+    await markNoticesSeen(profile);
+    return chatReply(await noticesFor(profile));
+  } catch (e) {
+    return chatFail(e);
+  }
+}
+
+// app/api/planner/route.ts
+var route_exports7 = {};
+__export(route_exports7, {
+  DELETE: () => DELETE2,
+  GET: () => GET6,
+  POST: () => POST5,
+  PUT: () => PUT2,
+  dynamic: () => dynamic7
+});
+init_inbox_server();
+init_discussion_server();
 
 // lib/entry-activity.ts
+init_db();
 async function withEntryActivity(entries, kind = "event") {
   const ids = [...new Set(entries.filter((entry) => !entry.wasteKind).flatMap((entry) => entry.sharedThreadId ? [entry.sharedThreadId] : [entry.id, ...kind === "event" && entry.id.startsWith("todo-") ? [entry.id.slice(5)] : []]))];
   if (!ids.length) return entries;
@@ -1105,6 +1251,9 @@ async function withEntryActivity(entries, kind = "event") {
     return activity ? { ...entry, activity } : entry;
   });
 }
+
+// app/api/planner/route.ts
+init_db();
 
 // lib/waste-calendar.ts
 var WASTE_CALENDAR_SOURCE = {
@@ -1245,6 +1394,7 @@ function wastePickupsForDate(date) {
 }
 
 // lib/family-access.ts
+init_env();
 function safeEqual(left, right) {
   if (left.length !== right.length) return false;
   let difference = 0;
@@ -1261,7 +1411,8 @@ function isValidProfileChangeCode(value) {
 }
 
 // app/api/planner/route.ts
-var dynamic6 = "force-dynamic";
+init_planner();
+var dynamic7 = "force-dynamic";
 var PARENTS = ["sascha", "katharina"];
 var WASTE_KINDS = /* @__PURE__ */ new Set(["rest", "bio", "yellow", "paper"]);
 var reply = (data, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -1334,14 +1485,14 @@ function fail(error) {
   console.error("Planner API failed", error);
   return reply({ error: "Der Kalender ist gerade nicht erreichbar. Bitte erneut versuchen." }, 500);
 }
-async function GET5(request) {
+async function GET6(request) {
   try {
     return reply(await bundle(await identify(request)));
   } catch (e) {
     return fail(e);
   }
 }
-async function POST4(request) {
+async function POST5(request) {
   if (!allowed(request)) return reply({ error: "Unzul\xE4ssige Anfrage" }, 403);
   try {
     const input = await request.json();
@@ -1549,12 +1700,12 @@ async function DELETE2(request) {
 }
 
 // app/api/profile/unlock/route.ts
-var route_exports7 = {};
-__export(route_exports7, {
-  POST: () => POST5,
-  dynamic: () => dynamic7
+var route_exports8 = {};
+__export(route_exports8, {
+  POST: () => POST6,
+  dynamic: () => dynamic8
 });
-var dynamic7 = "force-dynamic";
+var dynamic8 = "force-dynamic";
 function response2(body, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
@@ -1564,7 +1715,7 @@ function allowRequest(request) {
   const fetchSite = request.headers.get("sec-fetch-site");
   return fetchSite !== "cross-site" && (!origin || origin === url.origin);
 }
-async function POST5(request) {
+async function POST6(request) {
   if (!allowRequest(request)) return response2({ error: "Unzul\xE4ssige Anfrage" }, 403);
   try {
     const input = await request.json();
@@ -1581,13 +1732,15 @@ async function POST5(request) {
 }
 
 // app/api/push/daily/route.ts
-var route_exports8 = {};
-__export(route_exports8, {
-  GET: () => GET6,
-  POST: () => POST6,
-  dynamic: () => dynamic8
+var route_exports9 = {};
+__export(route_exports9, {
+  GET: () => GET7,
+  POST: () => POST7,
+  dynamic: () => dynamic9
 });
-var dynamic8 = "force-dynamic";
+init_db();
+init_env();
+var dynamic9 = "force-dynamic";
 function berlinDateKey() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Berlin",
@@ -1639,7 +1792,7 @@ async function sendDailySummary(db, subscription) {
   }
   return { sent, reason: sent ? "sent" : "push-failed" };
 }
-async function GET6(request) {
+async function GET7(request) {
   const token = new URL(request.url).searchParams.get("token");
   if (!token || !/^[a-f0-9]{32}$/.test(token)) {
     return Response.json({ sent: false, error: "Ung\xFCltiger Erinnerungslink" }, { status: 400 });
@@ -1658,7 +1811,7 @@ async function GET6(request) {
     return Response.json({ sent: false, error: "Tageserinnerung nicht erreichbar" }, { status: 500 });
   }
 }
-async function POST6(request) {
+async function POST7(request) {
   const expected = env.DAILY_PUSH_TOKEN;
   const supplied = request.headers.get("authorization");
   if (!expected || supplied !== `Bearer ${expected}`) {
@@ -1680,13 +1833,14 @@ async function POST6(request) {
 }
 
 // app/api/push/subscription/route.ts
-var route_exports9 = {};
-__export(route_exports9, {
+var route_exports10 = {};
+__export(route_exports10, {
   DELETE: () => DELETE3,
-  POST: () => POST7,
-  dynamic: () => dynamic9
+  POST: () => POST8,
+  dynamic: () => dynamic10
 });
-var dynamic9 = "force-dynamic";
+init_db();
+var dynamic10 = "force-dynamic";
 var PEOPLE2 = /* @__PURE__ */ new Set(["sascha", "katharina", "arjen"]);
 function response3(body, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -1704,7 +1858,7 @@ function parseSubscription(value) {
   if (typeof input.endpoint !== "string" || !input.endpoint.startsWith("https://") || input.endpoint.length > 2048 || !keys || typeof keys.p256dh !== "string" || typeof keys.auth !== "string" || keys.p256dh.length > 256 || keys.auth.length > 256) return null;
   return { endpoint: input.endpoint, p256dh: keys.p256dh, auth: keys.auth };
 }
-async function POST7(request) {
+async function POST8(request) {
   if (!allowWrite2(request)) return response3({ error: "Unzul\xE4ssige Anfrage" }, 403);
   try {
     const input = await request.json();
@@ -1760,14 +1914,15 @@ async function DELETE3(request) {
 }
 
 // app/api/shopping/route.ts
-var route_exports10 = {};
-__export(route_exports10, {
+var route_exports11 = {};
+__export(route_exports11, {
   DELETE: () => DELETE4,
-  GET: () => GET7,
+  GET: () => GET8,
   PUT: () => PUT3,
-  dynamic: () => dynamic10
+  dynamic: () => dynamic11
 });
-var dynamic10 = "force-dynamic";
+init_db();
+var dynamic11 = "force-dynamic";
 var PEOPLE3 = /* @__PURE__ */ new Set(["sascha", "katharina", "arjen"]);
 var ValidationError2 = class extends Error {
 };
@@ -1800,7 +1955,7 @@ function errorMessage2(error) {
   const message = error instanceof Error ? error.message : "Unexpected error";
   return message.includes("no such table") ? "Die Einkaufsliste wird gerade eingerichtet. Bitte gleich noch einmal versuchen." : "Die Einkaufsliste ist gerade nicht erreichbar.";
 }
-async function GET7(request) {
+async function GET8(request) {
   const denied = await familyApiAccess(request);
   if (denied) return denied;
   try {
@@ -1854,15 +2009,18 @@ async function DELETE4(request) {
 }
 
 // app/api/todo/route.ts
-var route_exports11 = {};
-__export(route_exports11, {
+var route_exports12 = {};
+__export(route_exports12, {
   DELETE: () => DELETE5,
-  GET: () => GET8,
-  POST: () => POST8,
+  GET: () => GET9,
+  POST: () => POST9,
   PUT: () => PUT4,
-  dynamic: () => dynamic11
+  dynamic: () => dynamic12
 });
-var dynamic11 = "force-dynamic";
+init_inbox_server();
+init_discussion_server();
+init_db();
+var dynamic12 = "force-dynamic";
 var PEOPLE4 = /* @__PURE__ */ new Set(["sascha", "katharina", "arjen"]);
 var ValidationError3 = class extends Error {
 };
@@ -1923,7 +2081,7 @@ function parseTodo(value) {
   const audience = todoAudience(input.audience);
   return { id, kind, title, ...date ? { date } : {}, ...note ? { note } : {}, createdBy, ...audience ? { audience } : {} };
 }
-async function GET8(request) {
+async function GET9(request) {
   const denied = await familyApiAccess(request);
   if (denied) return denied;
   try {
@@ -1962,7 +2120,7 @@ async function PUT4(request) {
     return response5({ error: errorMessage3(error) }, 500);
   }
 }
-async function POST8(request) {
+async function POST9(request) {
   const denied = await familyApiAccess(request);
   if (denied) return denied;
   if (!allowWrite4(request)) return response5({ error: "Unzul\xE4ssige Anfrage" }, 403);
@@ -2040,13 +2198,14 @@ async function DELETE5(request) {
 }
 
 // app/api/waste/route.ts
-var route_exports12 = {};
-__export(route_exports12, {
-  GET: () => GET9,
+var route_exports13 = {};
+__export(route_exports13, {
+  GET: () => GET10,
   PUT: () => PUT5,
-  dynamic: () => dynamic12
+  dynamic: () => dynamic13
 });
-var dynamic12 = "force-dynamic";
+init_db();
+var dynamic13 = "force-dynamic";
 var PEOPLE5 = /* @__PURE__ */ new Set(["sascha", "katharina", "arjen"]);
 var PICKUP_IDS = new Set(WASTE_PICKUPS.map((pickup) => pickup.id));
 function response6(body, status = 200) {
@@ -2070,7 +2229,7 @@ function fromRow4(row) {
     updatedAt: row.updated_at
   };
 }
-async function GET9(request) {
+async function GET10(request) {
   const denied = await familyApiAccess(request);
   if (denied) return denied;
   try {
@@ -2248,13 +2407,14 @@ var routes = [
   { pattern: /^\/api\/discussions\/attachments$/, module: route_exports3 },
   { pattern: /^\/api\/discussions\/media\/([^/]+)$/, module: route_exports4, params: ["id"] },
   { pattern: /^\/api\/inbox$/, module: route_exports5 },
-  { pattern: /^\/api\/planner$/, module: route_exports6 },
-  { pattern: /^\/api\/profile\/unlock$/, module: route_exports7 },
-  { pattern: /^\/api\/push\/daily$/, module: route_exports8 },
-  { pattern: /^\/api\/push\/subscription$/, module: route_exports9 },
-  { pattern: /^\/api\/shopping$/, module: route_exports10 },
-  { pattern: /^\/api\/todo$/, module: route_exports11 },
-  { pattern: /^\/api\/waste$/, module: route_exports12 }
+  { pattern: /^\/api\/notices$/, module: route_exports6 },
+  { pattern: /^\/api\/planner$/, module: route_exports7 },
+  { pattern: /^\/api\/profile\/unlock$/, module: route_exports8 },
+  { pattern: /^\/api\/push\/daily$/, module: route_exports9 },
+  { pattern: /^\/api\/push\/subscription$/, module: route_exports10 },
+  { pattern: /^\/api\/shopping$/, module: route_exports11 },
+  { pattern: /^\/api\/todo$/, module: route_exports12 },
+  { pattern: /^\/api\/waste$/, module: route_exports13 }
 ];
 export {
   D1OnPostgres,

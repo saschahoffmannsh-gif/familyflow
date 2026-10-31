@@ -5,6 +5,7 @@ import * as discussions from '@/app/api/discussions/route'
 import * as attachments from '@/app/api/discussions/attachments/route'
 import * as media from '@/app/api/discussions/media/[id]/route'
 import * as inbox from '@/app/api/inbox/route'
+import * as notices from '@/app/api/notices/route'
 import * as planner from '@/app/api/planner/route'
 import * as unlock from '@/app/api/profile/unlock/route'
 import * as daily from '@/app/api/push/daily/route'
@@ -23,6 +24,7 @@ export const routes: { pattern: RegExp; module: RouteModule; params?: string[] }
   { pattern: /^\/api\/discussions\/attachments$/, module: attachments as RouteModule },
   { pattern: /^\/api\/discussions\/media\/([^/]+)$/, module: media as unknown as RouteModule, params: ['id'] },
   { pattern: /^\/api\/inbox$/, module: inbox as RouteModule },
+  { pattern: /^\/api\/notices$/, module: notices as RouteModule },
   { pattern: /^\/api\/planner$/, module: planner as RouteModule },
   { pattern: /^\/api\/profile\/unlock$/, module: unlock as RouteModule },
   { pattern: /^\/api\/push\/daily$/, module: daily as RouteModule },
