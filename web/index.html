@@ -24,7 +24,7 @@
       #done-splash svg{width:min(52vw,240px);height:auto;animation:done-splash-in .6s ease both}
       #done-splash p{margin:0;font-size:22px;font-weight:600;letter-spacing:.01em;animation:done-splash-in .6s .15s ease both}
       #done-splash .bar{width:min(56vw,240px);height:3px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
-      #done-splash .bar i{display:block;height:100%;width:100%;background:#fff;border-radius:inherit;transform:scaleX(0);transform-origin:left;animation:done-splash-bar 5s linear forwards}
+      #done-splash .bar i{display:block;height:100%;width:100%;background:#fff;border-radius:inherit;transform:scaleX(0);transform-origin:left;animation:done-splash-bar 2s linear forwards}
       @keyframes done-splash-bar{to{transform:scaleX(1)}}
       @keyframes done-splash-in{from{opacity:0;transform:translateY(6px)}}
     </style>
@@ -51,7 +51,7 @@
           el.classList.add("is-out")
           if (meta) meta.content = light
           setTimeout(function () { el.remove() }, 500)
-        }, 5000)
+        }, 2000)
       })()
     </script>
     <div id="root"></div>
