@@ -162,6 +162,13 @@ test('family entries for several people keep audience through the legacy calenda
  assert.ok(seen && !seen.audience.includes('arjen'))
  await call('PUT', { ...p, audience: ['sascha', 'nobody'], revision: 1 }, key, 403)
  await call('DELETE', { ...p, revision: 1 }, key)
+ const t = { id: crypto.randomUUID(), groupId: 'family', kind: 'task', title: 'Kärcher', date: '2027-02-02', person: 'sascha', audience: ['sascha', 'katharina'] }
+ result = await call('PUT', t, key)
+ const task = result.events.find(e => e.id === t.id)
+ assert.ok(task && task.kind === 'task', 'Auftrag für mehrere landet direkt im Kalender')
+ assert.deepEqual(task.audience, ['sascha', 'katharina'])
+ assert.equal((await DB.prepare('SELECT count(*) AS n FROM todo_items').first()).n * 1, 0, 'nicht in offenen Aufträgen')
+ await call('DELETE', { ...t, revision: 1 }, key)
 })
 test('Mitteilungen: neue Einträge von anderen, gesehen-Status', async () => {
  const plugins = (await build({ entryPoints: [path.join(root, 'app/api/notices/route.ts')], bundle: true, platform: 'node', format: 'esm', write: false, metafile: false, plugins: [{ name: 'd1-test-adapter', setup(b) {
